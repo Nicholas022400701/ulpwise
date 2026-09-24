@@ -26,10 +26,10 @@ estimator under test took two different branches. `ulpwise` finds that input, an
 like it in `[0.5, 1)`, before CI does:
 
 ```
-$ python -m ulpwise midpoint sqrt 0.8528626561164856 --dtype f32
+$ ulpwise midpoint sqrt 0.8528626561164856 --dtype f32
 rounded 0.9235056042671204, exact result lies above it, 3.771e-04 ulp from the rounding midpoint
 
-$ python -m ulpwise knife sqrt --lo 0.85 --hi 0.86 --tol 1e-3 --limit 3
+$ ulpwise knife sqrt --lo 0.85 --hi 0.86 --tol 1e-3 --limit 3
                        x                  rounded  midpoint distance (ulp) exact lies
       0.8500027060508728       0.9219558835029602                2.521e-04      above
       0.8500217199325562       0.9219662547111511                5.452e-04      below
@@ -57,7 +57,8 @@ run.
 ## Install
 
 ```sh
-pip install ulpwise
+pip install ulpwise          # or: uv add ulpwise
+uvx ulpwise special f32      # run the command line tool without installing anything
 ```
 
 Wheels on [PyPI](https://pypi.org/project/ulpwise/) cover Linux x86_64 and aarch64, macOS arm64 and

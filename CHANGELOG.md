@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-09-24)
+
+- `ulpwise` console script, so `uvx ulpwise midpoint sqrt 0.85`, `pipx run ulpwise ...` and a plain
+  `ulpwise ...` inside a virtualenv work without `python -m`.
+
 ## 0.1.1 (2026-09-24)
 
 No code changes. The AI disclosure in the README was shortened and the package was republished

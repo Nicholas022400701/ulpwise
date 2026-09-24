@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ulpwise"
-version = "0.1.1"
+version = "0.1.2"
 description = "Numerical conformance testing for ML code: float edge values, exact rounding oracles, knife-edge finders and a pytest plugin"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
@@ -25,6 +25,9 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7", "numpy"]
+
+[project.scripts]
+ulpwise = "ulpwise.__main__:main"
 
 [project.entry-points.pytest11]
 ulpwise = "ulpwise.plugin"
