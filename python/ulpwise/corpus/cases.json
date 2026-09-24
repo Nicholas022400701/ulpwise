@@ -43,6 +43,27 @@
    "before_fix": "[-3.1605, 0.25, -2.1605]"
   },
   {
+   "id": "kornia-4768-ellipse-to-laf-tilt",
+   "repo": "kornia/kornia",
+   "pr": 4768,
+   "merged_at": "2026-09-24T09:11:00Z",
+   "kind": "geometry",
+   "title": "ellipse_to_laf took the triangular square root of [[a, 0], [b, c]] instead of the symmetric [[a, b], [b, c]], so every ellipse with b != 0 came back under-tilted",
+   "symptom": "The region described by the returned LAF, inverse(A @ A.T), was [[1.0625, 0.25], [0.25, 1]] for the ellipse (a, b, c) = (1, 0.5, 1) and [[2.18, -0.3], [-0.3, 0.5]] for (2, -0.9, 0.5); LAFAffineShapeEstimator inherited the tilt error for every patch whose dominant gradient is not axis-aligned.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport kornia.feature as KF\n# Oxford ellipses [x, y, a, b, c]; the LAF's A must satisfy A @ A.T == inverse([[a, b], [b, c]])\nells = torch.tensor([[[0.0, 0.0, 1.0, 0.5, 1.0], [3.0, -2.0, 2.0, -0.9, 0.5]]], dtype=torch.float64)\nA = KF.ellipse_to_laf(ells)[..., :2]\nregion = torch.linalg.inv(A @ A.transpose(-1, -2))[0]\nactual = region.reshape(-1).tolist()\nexpected = [1.0, 0.5, 0.5, 1.0, 2.0, -0.9, -0.9, 0.5]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "[1.0625, 0.25, 0.25, 1.0, 2.18, -0.3, -0.3, 0.5]"
+  },
+  {
    "id": "pytorch-198006-multinomial-entropy-dtype",
    "repo": "pytorch/pytorch",
    "pr": 198006,

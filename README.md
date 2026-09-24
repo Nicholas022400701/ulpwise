@@ -124,6 +124,7 @@ known to contain the fix, so the run tells you which bugs are present in your en
 |---|---|---|
 | kornia #4683 second derivative sign in `spatial_gradient(order=2)` | sign | 2026-09-22 |
 | kornia #4767 mixed second order kernel scale, wrong `hessian_response` determinant | scale | 2026-09-23 |
+| kornia #4768 `ellipse_to_laf` under-tilted every ellipse with `b != 0` | geometry | 2026-09-24 |
 | pytorch #198006 `Multinomial.entropy()` evaluated in the default dtype | dtype | 2026-09-23 |
 | pytorch/rl #4443 `arange(0, 1, 1/n)` gives `n + 1` positions for 140 values of `n` below 2000 | rounding | 2026-09-20 |
 | pytorch/rl #4444 `min_value or -inf` drops `min_value=0` | falsy zero | 2026-09-20 |

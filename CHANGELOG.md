@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Corpus: kornia #4768, `ellipse_to_laf` described the wrong ellipse whenever `b != 0`.
+
 ## 0.1.2 (2026-09-24)
 
 - `ulpwise` console script, so `uvx ulpwise midpoint sqrt 0.85`, `pipx run ulpwise ...` and a plain
