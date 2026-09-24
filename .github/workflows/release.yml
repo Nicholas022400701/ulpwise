@@ -1,0 +1,121 @@
+# Builds wheels for every supported platform plus an sdist. On a tag push (v*) it also
+# uploads them to PyPI through trusted publishing (no API token stored anywhere):
+# the PyPI project "ulpwise" must list this repository, this workflow file name and the
+# "pypi" environment as its publisher. A manual run only builds and checks the wheels,
+# unless its "publish" input is set, in which case it also uploads and tags the commit.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to PyPI and tag the commit v<version from pyproject.toml>"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: wheel (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64
+            smoke: true
+          - name: linux-aarch64
+            runner: ubuntu-latest
+            target: aarch64
+            smoke: false
+          - name: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            smoke: true
+          - name: macos-x86_64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            smoke: false
+          - name: windows-x64
+            runner: windows-latest
+            target: x64
+            smoke: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+          sccache: false
+      - name: smoke test the wheel
+        if: matrix.smoke
+        shell: bash
+        run: |
+          pip install --no-index --find-links dist ulpwise
+          python -c "import ulpwise; print('ulpwise', ulpwise.__version__)"
+          python -m ulpwise ulp 1.0 1.0000001 --dtype f32
+          python -m ulpwise midpoint sqrt 0.8528626561164856 --dtype f32
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.name }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - name: the sdist must build on its own
+        run: |
+          pip install pytest numpy
+          pip install dist/*.tar.gz
+          pytest tests/test_core.py -q -p no:cacheprovider
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - run: ls -l dist
+      - name: read the version and check it against the tag, when there is one
+        id: version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF" != "refs/tags/v$version" ]]; then
+            echo "tag $GITHUB_REF does not match pyproject version $version" >&2
+            exit 1
+          fi
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: tag the published commit (manual runs only, tag pushes already have the tag)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"

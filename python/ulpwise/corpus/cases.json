@@ -1,0 +1,229 @@
+{
+ "schema": 1,
+ "description": "Regression corpus: numerical and API bugs found by this project's contribution pipeline and merged upstream. Each repro sets `actual` and `expected`; `check` says how to compare. `before_fix` is what the buggy release produced, quoted from the merged pull request.",
+ "cases": [
+  {
+   "id": "kornia-4683-second-order-derivative-sign",
+   "repo": "kornia/kornia",
+   "pr": 4683,
+   "merged_at": "2026-09-22T14:58:52Z",
+   "kind": "sign",
+   "title": "spatial_gradient(order=2) returned second derivatives with the wrong sign",
+   "symptom": "On x**2 the normalized sobel dxx was -2 where the second derivative is +2; on x*y the diff dxy was negative next to a correctly signed dxx.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport kornia.filters as KF\nxs = torch.arange(-4, 5, dtype=torch.float64)\ny, x = torch.meshgrid(xs, xs, indexing='ij')\ndxx = KF.spatial_gradient((x * x)[None, None], mode='sobel', order=2)[0, 0, 0, 4, 4]\ndxy = KF.spatial_gradient((x * y)[None, None], mode='sobel', order=2)[0, 0, 1, 4, 4]\ndxy_diff = KF.spatial_gradient((x * y)[None, None], mode='diff', order=2)[0, 0, 1, 4, 4]\nactual = [dxx.item(), dxy.item(), dxy_diff.item()]\nexpected = [2.0, 1.0, 1.0]\n",
+   "check": {
+    "type": "sign"
+   },
+   "before_fix": "[-2.0, -1.78, -1.0]"
+  },
+  {
+   "id": "kornia-4767-second-order-kernel-scale",
+   "repo": "kornia/kornia",
+   "pr": 4767,
+   "merged_at": "2026-09-23T22:30:32Z",
+   "kind": "scale",
+   "title": "normalized second order kernels gave the mixed derivative its own scale, so hessian_response returned a wrong determinant",
+   "symptom": "Determinant of the Hessian at the centre of a 9x9 grid: x*y gave -3.1605 (sobel) instead of -1, x**2 + y**2 gave 0.25 (diff) instead of 4, (x + y)**2 / 2 gave -2.1605 (sobel) instead of 0.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport kornia.feature as KFe\nxs = torch.arange(-4, 5, dtype=torch.float64)\ny, x = torch.meshgrid(xs, xs, indexing='ij')\ndet_sobel_xy = KFe.hessian_response((x * y)[None, None], grads_mode='sobel')[0, 0, 4, 4]\ndet_diff_quad = KFe.hessian_response((x * x + y * y)[None, None], grads_mode='diff')[0, 0, 4, 4]\ndet_sobel_degenerate = KFe.hessian_response(((x + y) ** 2 / 2)[None, None], grads_mode='sobel')[0, 0, 4, 4]\nactual = [det_sobel_xy.item(), det_diff_quad.item(), det_sobel_degenerate.item()]\nexpected = [-1.0, 4.0, 0.0]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-09,
+    "rtol": 0.0
+   },
+   "before_fix": "[-3.1605, 0.25, -2.1605]"
+  },
+  {
+   "id": "pytorch-198006-multinomial-entropy-dtype",
+   "repo": "pytorch/pytorch",
+   "pr": 198006,
+   "merged_at": "2026-09-23T17:16:39Z",
+   "kind": "dtype",
+   "title": "Multinomial.entropy() evaluated lgamma in the default dtype, so a float64 distribution carried a float32 error; expand() lost _binomial",
+   "symptom": "Against scipy.stats.multinomial.entropy the error was 4.6e-07 at n=10, 2.4e-04 at n=1000 and 1.9e-03 at n=10000; dist.expand(shape).entropy() raised AttributeError.",
+   "requires": [
+    "scipy",
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom scipy.stats import multinomial\nprobs = torch.tensor([0.2, 0.3, 0.5], dtype=torch.float64)\ndist = torch.distributions.Multinomial(1000, probs)\nreference = float(multinomial.entropy(1000, probs.numpy()))\nactual = [dist.entropy().item(), dist.expand((2,)).entropy()[0].item()]\nexpected = [reference, reference]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 1e-09
+   },
+   "before_fix": "error 2.4e-4 at total_count 1000, AttributeError from the expanded distribution"
+  },
+  {
+   "id": "torchrl-4443-action-discretizer-arange-rounding",
+   "repo": "pytorch/rl",
+   "pr": 4443,
+   "merged_at": "2026-09-20T06:05:06Z",
+   "kind": "rounding",
+   "title": "ActionDiscretizer built bin positions with arange(0, 1, step=1/nint), which returns nint + 1 positions when the step does not accumulate to exactly 1.0",
+   "symptom": "nint = 49, 98, 103, 107 (140 values below 2000) gave one position too many: int num_intervals crashed in transform_input_spec, tensor num_intervals silently sampled the lower edge of every bin.",
+   "requires": [
+    "torch",
+    "torchrl"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom torchrl.envs.transforms import ActionDiscretizer\nt = ActionDiscretizer(num_intervals=49)\nt.dtype = torch.float32\nactual = [t.custom_arange(n, torch.device('cpu')).numel() for n in (49, 98, 103, 107, 10)]\nexpected = [49, 98, 103, 107, 10]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[50, 99, 104, 108, 10]"
+  },
+  {
+   "id": "torchrl-4444-parameter-scheduler-zero-bound",
+   "repo": "pytorch/rl",
+   "pr": 4444,
+   "merged_at": "2026-09-20T06:04:25Z",
+   "kind": "falsy_zero",
+   "title": "ParameterScheduler stored min_value or -inf, so min_value=0 and max_value=0 were dropped",
+   "symptom": "StepScheduler(rb, 'alpha', gamma=-0.2, mode='additive', min_value=0) let alpha reach -0.1 and PrioritizedSampler raised ValueError.",
+   "requires": [
+    "torch",
+    "torchrl"
+   ],
+   "fixed_in_release": null,
+   "repro": "from torchrl.data.replay_buffers import ListStorage, PrioritizedSampler, ReplayBuffer\nfrom torchrl.data.replay_buffers.scheduler import StepScheduler\nrb = ReplayBuffer(storage=ListStorage(16), sampler=PrioritizedSampler(16, alpha=0.5, beta=0.5))\nsched = StepScheduler(rb, 'alpha', gamma=-0.2, n_steps=1, mode='additive', min_value=0)\nseen = []\nfor _ in range(4):\n    sched.step()\n    seen.append(float(rb.sampler.alpha))\nactual = seen\nexpected = [0.3, 0.1, 0.0, 0.0]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "ValueError: alpha must be greater or equal than 0 on the third step"
+  },
+  {
+   "id": "torchrl-4445-parameter-scheduler-state-dict-picklable",
+   "repo": "pytorch/rl",
+   "pr": 4445,
+   "merged_at": "2026-09-20T06:04:04Z",
+   "kind": "crash",
+   "title": "ParameterScheduler.state_dict() contained the numpy or torch module itself, so torch.save raised TypeError",
+   "symptom": "torch.save(scheduler.state_dict(), ...) raised TypeError: cannot pickle 'module' object for every scheduler.",
+   "requires": [
+    "torch",
+    "torchrl"
+   ],
+   "fixed_in_release": null,
+   "repro": "import io\nimport torch\nfrom torchrl.data.replay_buffers import ListStorage, PrioritizedSampler, ReplayBuffer\nfrom torchrl.data.replay_buffers.scheduler import StepScheduler\nrb = ReplayBuffer(storage=ListStorage(16), sampler=PrioritizedSampler(16, alpha=0.5, beta=0.5))\nsched = StepScheduler(rb, 'alpha', gamma=0.5, n_steps=1)\nsched.step()\nsched.step()\nbuf = io.BytesIO()\ntorch.save(sched.state_dict(), buf)\nbuf.seek(0)\nstate = torch.load(buf, weights_only=False)\nactual = [state['_step_cnt']]\nexpected = [2]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "TypeError: cannot pickle 'module' object"
+  },
+  {
+   "id": "timm-2786-mars-last-grad-aliasing",
+   "repo": "huggingface/pytorch-image-models",
+   "pr": 2786,
+   "merged_at": "2026-09-17T15:56:21Z",
+   "kind": "aliasing",
+   "title": "Mars kept a reference to p.grad as last_grad instead of a copy, so zero_grad(set_to_none=False) silently removed the variance reduction term",
+   "symptom": "With in-place zeroing, grad - last_grad was always zero and MARS degenerated to AdamW on the clipped gradient; the two zero_grad modes gave different trajectories.",
+   "requires": [
+    "torch",
+    "timm"
+   ],
+   "fixed_in_release": "1.0.30",
+   "repro": "import torch\nfrom timm.optim.mars import Mars\n\ndef run(set_to_none):\n    g = torch.Generator().manual_seed(0)\n    p = torch.nn.Parameter(torch.ones(4, 3))\n    opt = Mars([p], lr=1e-2)\n    for _ in range(4):\n        direction = torch.randn(p.shape, generator=g)\n        opt.zero_grad(set_to_none=set_to_none)\n        (p * direction).sum().backward()\n        opt.step()\n    return p.detach().clone(), opt.state[p]['last_grad'], p.grad\n\np_none, _, _ = run(True)\np_zero, last_grad, grad = run(False)\nassert last_grad is not grad, 'last_grad aliases p.grad'\nactual = p_zero.flatten().tolist()\nexpected = p_none.flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-06,
+    "rtol": 1e-06
+   },
+   "before_fix": "last_grad is p.grad; the two trajectories differ"
+  },
+  {
+   "id": "timm-2790-adafactor-bv-clipping-direction",
+   "repo": "huggingface/pytorch-image-models",
+   "pr": 2790,
+   "merged_at": "2026-09-18T15:31:48Z",
+   "kind": "direction",
+   "title": "AdafactorBigVision divided the update by min(1, rms * threshold) instead of max(1, rms / threshold), scaling small updates up and never clipping large ones",
+   "symptom": "Every update with RMS below 1 / clipping_threshold was scaled up to exactly that RMS; large updates were left alone.",
+   "requires": [
+    "torch",
+    "timm"
+   ],
+   "fixed_in_release": "1.0.30",
+   "repro": "import torch\nfrom timm.optim.adafactor_bv import AdafactorBigVision\nthreshold = 0.5\ng = torch.Generator().manual_seed(0)\nbase = torch.randn(16, 32, dtype=torch.double, generator=g)\n\ndef make(t):\n    p = torch.nn.Parameter(torch.zeros(16, 32, dtype=torch.double))\n    return p, AdafactorBigVision([p], lr=1.0, momentum=None, eps=1e-30, weight_decay=0.0, clipping_threshold=t)\n\np_ref, o_ref = make(None)\np_clip, o_clip = make(threshold)\nactual, expected = [], []\nfor grad in (base, 10 * base, 0.1 * base):\n    b_ref, b_clip = p_ref.detach().clone(), p_clip.detach().clone()\n    p_ref.grad, p_clip.grad = grad.clone(), grad.clone()\n    o_ref.step()\n    o_clip.step()\n    u_ref, u_clip = b_ref - p_ref.detach(), b_clip - p_clip.detach()\n    rms_ref = (u_ref.norm() / u_ref.numel() ** 0.5).item()\n    actual += u_clip.flatten().tolist()\n    expected += (u_ref / max(1.0, rms_ref / threshold)).flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-09,
+    "rtol": 1e-07
+   },
+   "before_fix": "clipped update = unclipped / min(1, rms * threshold)"
+  },
+  {
+   "id": "timm-2791-adamuon-conv-lr-scale",
+   "repo": "huggingface/pytorch-image-models",
+   "pr": 2791,
+   "merged_at": "2026-09-18T15:31:48Z",
+   "kind": "scale",
+   "title": "AdaMuon computed the shape based LR scale from the reshaped N-D conv weight, so conv updates were sqrt(out * in) times too small",
+   "symptom": "Step RMS for a conv weight was 0.2 * lr / sqrt(out * in) instead of 0.2 * lr: 5.7x too small for 8x4x3x3, 512x for 512x512x3x3.",
+   "requires": [
+    "torch",
+    "timm"
+   ],
+   "fixed_in_release": "1.0.30",
+   "repro": "import torch\nfrom timm.optim.muon import Muon\ng = torch.Generator().manual_seed(0)\nactual, expected = [], []\nfor shape in ((8, 4, 3, 3), (8, 36)):\n    p = torch.nn.Parameter(torch.zeros(shape))\n    opt = Muon([p], lr=0.1, weight_decay=0.0, algo='adamuon', conv_mode='flatten')\n    for _ in range(3):\n        before = p.detach().clone()\n        p.grad = torch.randn(shape, generator=g)\n        opt.step()\n        actual.append((before - p.detach()).square().mean().sqrt().item())\n        expected.append(0.2 * 0.1)\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-07,
+    "rtol": 1e-05
+   },
+   "before_fix": "conv step RMS 0.02 / sqrt(32) = 0.0035"
+  },
+  {
+   "id": "timm-2792-kron-setstate-shadowed",
+   "repo": "huggingface/pytorch-image-models",
+   "pr": 2792,
+   "merged_at": "2026-09-18T15:31:48Z",
+   "kind": "crash",
+   "title": "Kron defined __setstate__ twice, so the back-fill of corrected_weight_decay into loaded param groups never ran",
+   "symptom": "Resuming a pre June 2025 Kron checkpoint with decoupled_decay=True raised KeyError: 'corrected_weight_decay' on the first step.",
+   "requires": [
+    "torch",
+    "timm"
+   ],
+   "fixed_in_release": "1.0.30",
+   "repro": "import torch\nfrom timm.optim.kron import Kron\n\ndef make():\n    p = torch.nn.Parameter(torch.ones(4, 3))\n    p.grad = torch.full_like(p, 0.5)\n    return p, Kron([p], lr=1e-3, weight_decay=0.1, decoupled_decay=True, deterministic=True)\n\np1, o1 = make()\no1.step()\nstate = o1.state_dict()\nfor group in state['param_groups']:\n    group.pop('corrected_weight_decay')\np2, o2 = make()\no2.load_state_dict(state)\no2.step()\nactual = [o2.param_groups[0]['corrected_weight_decay']]\nexpected = [False]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "KeyError: 'corrected_weight_decay'"
+  },
+  {
+   "id": "peft-3777-conv3d-pointwise-delta-weight",
+   "repo": "huggingface/peft",
+   "pr": 3777,
+   "merged_at": "2026-09-21T15:39:51Z",
+   "kind": "shape",
+   "title": "LoRA and HiRA get_delta_weight took the conv2d 1x1 shortcut for pointwise Conv3d weights, so merging failed",
+   "symptom": "weight.size()[2:4] == (1, 1) is also true for a Conv3d kernel_size=1 weight; the squeeze left the kernel dim in place and the matmul failed in merge_adapter, merge_and_unload and add_weighted_adapter.",
+   "requires": [
+    "torch",
+    "peft"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom peft import LoraConfig, get_peft_model\n\nclass Net(torch.nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.conv = torch.nn.Conv3d(4, 8, kernel_size=1)\n\n    def forward(self, x):\n        return self.conv(x)\n\ntorch.manual_seed(0)\nmodel = get_peft_model(Net(), LoraConfig(target_modules=['conv'], r=2, init_lora_weights=False))\nx = torch.randn(1, 4, 3, 3, 3)\nwith torch.no_grad():\n    before = model(x)\n    model.merge_adapter()\n    after = model(x)\nactual = after.flatten().tolist()\nexpected = before.flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-05,
+    "rtol": 1e-05
+   },
+   "before_fix": "RuntimeError from the matmul inside get_delta_weight during merge_adapter"
+  }
+ ]
+}
