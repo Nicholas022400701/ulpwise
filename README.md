@@ -15,6 +15,10 @@ platform and green on another:
 3. **Where do two implementations disagree?** Knife-edge scans: the inputs whose exact result sits
    within `tol` ulp of a rounding midpoint, so that two implementations that differ by one ulp
    return different floats. 8.4 million `f32` inputs are scanned in about 0.3 s.
+4. **How accurate are the functions I call, and would the library's own tests notice?**
+   `ulpwise survey` measures 61 elementary and special functions of torch, numpy, scipy and jax in
+   ulps against a 200 bit mpmath reference and, for torch, checks every error against the tolerance
+   of torch's own `OpInfo` reference test, default and per op override.
 
 ## Why this exists
 
@@ -134,9 +138,49 @@ known to contain the fix, so the run tells you which bugs are present in your en
 | timm #2791 AdaMuon conv LR scale computed from the wrong dims | scale | 2026-09-18 |
 | timm #2792 Kron `__setstate__` shadowed | crash | 2026-09-18 |
 | peft #3777 pointwise Conv3d took the conv2d 1x1 shortcut | shape | 2026-09-21 |
+| pytorch #198448 `torch.sqrt` float64 not correctly rounded at 27 of 64 knife edges | rounding | open |
+| pytorch #198583 `bessel_j0/j1/y0/y1`, `airy_ai` float64 lose up to 12 digits (`p1evl` leading 1) | digits | open |
+| kornia #4838 `axis_angle_to_rotation_matrix` drops the `theta^2` terms below 1e-3 rad | series | open |
+| kornia #4897 `So3.log`, the `So3` Jacobians and `Se3.exp/log` lose all digits for small angles | series | open |
+| torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |
 
-Two ultralytics fixes (#26240, #26246) are not in the corpus yet because their repros need model
-weights and a dataset layout; they will come with fixtures.
+Cases marked `open` have an issue with the complete patch attached and no merged fix yet; they are
+expected failures until a release contains the fix (`fixed_in_release` in `cases.json`), and the
+`max_ulp` check type measures the digits directly. Two ultralytics fixes (#26240, #26246) are not
+in the corpus yet because their repros need model weights and a dataset layout; they will come with
+fixtures.
+
+## Accuracy survey
+
+```sh
+pip install 'ulpwise[survey]' torch scipy jax      # mpmath is the reference, the rest are backends
+ulpwise survey --out survey                        # results.csv and results.md, about 3 minutes
+ulpwise survey --functions bessel_j0,polygamma_1 --backends torch,scipy --dtypes f64 --points 2000
+```
+
+For every function in `ulpwise.survey.REGISTRY` (exp, log, trig and hyperbolic functions, erf and
+friends, gamma family, torch.special Bessel and Airy functions, the activation functions), every
+dtype and every installed backend, the survey evaluates a log spaced grid over the function's domain
+plus the named edge values of the dtype, computes the exact value with mpmath at the rounded input,
+and reports max, p99 and median error in ulps, the fraction of inputs beyond 1 and 10 ulps, non
+finite mismatches and the worst input. For torch it also reports how many inputs the vectorized
+kernel and the scalar tail disagree on, and how many inputs would fail torch's reference test under
+the dtype default tolerance and under the op's `OpInfo` override, read from `op_db`.
+
+[`studies/accuracy-survey-2026-09`](studies/accuracy-survey-2026-09/README.md) is the first run
+(torch 2.14.0+cpu, numpy 2.2.6, scipy 1.18.1, jax 0.11.2, Linux x86_64 AVX512). The short version:
+
+- torch's `bessel_j0/j1/y0/y1` and `airy_ai` in float64 are off by 2.6e9 to 3.9e12 ulps and the
+  `precisionOverride({torch.float64: 1e-05})` on their tests hides every failing input.
+- torch's `polygamma(1, x)` in float64 keeps about 9 digits (4.0e6 ulps, 46 percent of inputs
+  beyond 10 ulps) and passes the default float64 tolerance, which at `rtol = atol = 1e-7` tolerates
+  about 4.5e8 ulps.
+- for 12 of 61 torch functions the AVX512 kernel and the scalar tail return different floats for
+  the same input, up to 246 of 619 inputs for `mish`.
+- jax on CPU flushes subnormals to zero, its float64 `erfinv` loses 5 digits near the ends of the
+  interval and its float64 `log_ndtr` loses 3 digits between `x = 5.4` and 8.
+- scipy's float64 `lgamma` does not handle the zeros at 1 and 2, and its Bessel functions lose the
+  phase at large `x`.
 
 ## How the exact oracle works
 
@@ -154,8 +198,9 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
 - `float16` and `bfloat16` ulps and edge values.
-- Exact references for transcendental functions (correctly rounded `exp`, `log`, ...) so the `f64`
-  ones can be scanned too.
+- Exact references for transcendental functions in Rust (correctly rounded `exp`, `log`, ...) so
+  the `f64` knife-edge scans do not need mpmath.
+- Survey backends for CUDA and MPS, and `float16` / `bfloat16` rows.
 - Zero copy paths for numpy arrays and torch tensors.
 - More corpus entries, with fixtures for the cases that need data.
 

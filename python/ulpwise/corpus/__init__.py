@@ -67,6 +67,10 @@ def run(case: Dict[str, Any]) -> None:
             ok = math.copysign(1.0, a) == math.copysign(1.0, e) and (a != 0) == (e != 0)
         elif kind == "allclose":
             ok = math.isfinite(a) and abs(a - e) <= check.get("atol", 0.0) + check.get("rtol", 0.0) * abs(e)
+        elif kind == "max_ulp":
+            from ulpwise import ulp_distance  # noqa: PLC0415
+
+            ok = math.isfinite(a) and ulp_distance(a, e, check.get("dtype", "f64")) <= check["max_ulp"]
         else:
             raise ValueError(f"unknown check type {kind!r}")
         if not ok:

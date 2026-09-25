@@ -25,6 +25,7 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7", "numpy"]
+survey = ["numpy", "mpmath>=1.3"]
 
 [project.scripts]
 ulpwise = "ulpwise.__main__:main"

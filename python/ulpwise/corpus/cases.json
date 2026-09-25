@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "description": "Regression corpus: numerical and API bugs found by this project's contribution pipeline and merged upstream. Each repro sets `actual` and `expected`; `check` says how to compare. `before_fix` is what the buggy release produced, quoted from the merged pull request.",
+ "description": "Regression corpus: numerical and API bugs found by this project's contribution pipeline. Each repro sets `actual` and `expected`; `check` says how to compare. `before_fix` is what the buggy release produced. Cases with a `pr` are merged upstream; cases with an `issue` and no `pr` are reported upstream with a patch attached and still open, so they are expected failures until the fix lands and `fixed_in_release` is set.",
  "cases": [
   {
    "id": "kornia-4683-second-order-derivative-sign",
@@ -245,6 +245,110 @@
     "rtol": 1e-05
    },
    "before_fix": "RuntimeError from the matmul inside get_delta_weight during merge_adapter"
+  },
+  {
+   "id": "pytorch-198448-sqrt-not-correctly-rounded",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 198448,
+   "merged_at": null,
+   "kind": "rounding",
+   "title": "torch.sqrt on CPU is not correctly rounded when the build routes it through MKL VML",
+   "symptom": "At float32 knife edges in [0.5, 1) torch.sqrt returned the float below the correctly rounded result on 7,131 of 16,996 inputs (always down); numpy.sqrt and torch.sqrt in float64 then cast were right on all of them. The result depends on the platform, so a test that pins one of these inputs is green on one CI runner and red on another.",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport ulpwise\nxs = [x for x, _, _, _ in ulpwise.knife_edges('sqrt', 0.5, 1.0, 1e-3, 'f32', 64)]\nactual = torch.sqrt(torch.tensor(xs, dtype=torch.float32)).tolist()\nexpected = [ulpwise.sqrt_cr(x, 'f32') for x in xs]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "27 of the first 64 knife edges rounded down instead of up on torch 2.14.0+cpu (MKL, AVX512); builds without MKL VML may pass"
+  },
+  {
+   "id": "pytorch-198583-bessel-p1evl-leading-one",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 198583,
+   "merged_at": null,
+   "kind": "coefficient",
+   "title": "bessel_j0, bessel_j1, bessel_y0, bessel_y1 and airy_ai drop the implied leading 1 of the Cephes p1evl denominators",
+   "symptom": "Ten Horner loops in Math.h start at 0.0 where Cephes' p1evl starts at 1.0, so the float64 results are off by up to 1e-6 absolute (2.4e-5 relative for j0 at 5.5, 1.0e-5 for y1 at 5.27, 3.3e-5 for airy_ai at -2.30); the OpInfo tests tolerate it through a float64 precisionOverride of 1e-5. Reported by the-Shallow for j0, j1 and y0; y1 and airy_ai added in the comments with the patch.",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nx = torch.tensor([5.26993], dtype=torch.float64)\nactual = [\n    torch.special.bessel_j0(x).item(),\n    torch.special.bessel_j1(x).item(),\n    torch.special.bessel_y0(x).item(),\n    torch.special.bessel_y1(x).item(),\n    torch.special.airy_ai(torch.tensor([-2.30154], dtype=torch.float64)).item(),\n]\n# mpmath at 200 bits, rounded to float64\nexpected = [-0.086199871814967743, -0.34549232119438467, -0.33594130771681818, 0.054955745481668872, 0.025628209343452262]\n",
+   "check": {
+    "type": "max_ulp",
+    "dtype": "f64",
+    "max_ulp": 8
+   },
+   "before_fix": "[-0.08620011880207763, -0.34549245198818446, -0.3359412504444201, 0.05495518143365105, 0.025629044485656297] on torch 2.14.0 (1.8e10 to 2.5e14 ulp)"
+  },
+  {
+   "id": "kornia-4838-axis-angle-low-angle-terms",
+   "repo": "kornia/kornia",
+   "pr": null,
+   "issue": 4838,
+   "merged_at": null,
+   "kind": "truncation",
+   "title": "axis_angle_to_rotation_matrix low-angle branch is off by theta**3 / 6",
+   "symptom": "For theta**2 <= 1e-6 the branch returns I + [v]x + [v]x**2 / 2, so at theta = 9.99e-4 in float64 the matrix is 1.3e-10 from the rotation of its input and from quaternion_to_rotation_matrix(axis_angle_to_quaternion(v)), next to a general branch exact to 2.2e-16.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport kornia.geometry.conversions as C\naxis = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64) / 14.0**0.5\nv = (9.99e-4 * axis)[None]\nactual = C.axis_angle_to_rotation_matrix(v).flatten().tolist()\nexpected = C.quaternion_to_rotation_matrix(C.axis_angle_to_quaternion(v)).flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "max |direct - quaternion route| = 1.33e-10 on kornia main 320f461"
+  },
+  {
+   "id": "kornia-4897-so3-se3-small-angle-digits",
+   "repo": "kornia/kornia",
+   "pr": null,
+   "issue": 4897,
+   "merged_at": null,
+   "kind": "cancellation",
+   "title": "So3.log, the So3 Jacobians and Se3.exp/log lose all their digits for small rotations",
+   "symptom": "So3.log uses 2 * acos(real) and Se3.exp/log form (1 - cos(theta)) / theta**2 and (theta - sin(theta)) / theta**3 directly, so in float32 a rotation of 1e-4 rad logs back to 0 and Se3.exp([1, 0, 0, 0, 0, 1e-4]) translates by (1, 0, 0) instead of (1, 5e-5, 0); the Jacobians are nan at the identity.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import Se3, So3\nrot = So3.exp(torch.tensor([[1e-4, 0.0, 0.0]], dtype=torch.float32))\nse = Se3.exp(torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 1e-4]], dtype=torch.float32))\nactual = [rot.log()[0, 0].item(), se.t[0, 1].item()]\nexpected = [1e-4, 5e-5]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 0.001
+   },
+   "before_fix": "[0.0, 0.0] on kornia main 7ddf731"
+  },
+  {
+   "id": "torchvision-9676-rotated-box-clamp-collapse",
+   "repo": "pytorch/vision",
+   "pr": null,
+   "issue": 9676,
+   "merged_at": null,
+   "kind": "ordering",
+   "title": "clamp_bounding_boxes collapses slightly tilted rotated boxes to a point",
+   "symptom": "_order_bounding_boxes_points picks the first corner with (y / y_max + 100 * x / x_max).min(), so for tilts within about half a degree of 0 or 180 the y term outweighs the x difference and a box that crosses the left edge clamps to [0, 200, 0, 0, 0] in both soft and hard mode.",
+   "requires": [
+    "torch",
+    "torchvision"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom torchvision import tv_tensors\nfrom torchvision.transforms.v2 import functional as F\nbox = tv_tensors.BoundingBoxes(\n    torch.tensor([[13.355, 19.723, 75.347, 48.114, -0.2]]), format='CXCYWHR', canvas_size=(200, 300)\n)\nout = F.clamp_bounding_boxes(box)\nactual = [(out[0, 2] * out[0, 3]).item()]  # area of the clamped box\nexpected = [1.0]  # any positive area\n",
+   "check": {
+    "type": "sign"
+   },
+   "before_fix": "[0.0, 200.0, 0.0, 0.0, 0.0] on torchvision 0.29.0, area 0"
   }
  ]
 }

@@ -39,6 +39,13 @@ def main(argv=None):
     u.add_argument("b", type=float)
     u.add_argument("--dtype", default="f64")
 
+    v = sub.add_parser("survey", help="accuracy survey of elementary and special functions against mpmath")
+    v.add_argument("--backends", default="torch,numpy,scipy,jax", help="comma separated: torch numpy scipy jax")
+    v.add_argument("--dtypes", default="f32,f64")
+    v.add_argument("--points", type=int, default=600, help="grid points per function and dtype")
+    v.add_argument("--functions", default=None, help="comma separated subset of function names")
+    v.add_argument("--out", default="survey", help="output directory for results.csv and results.md")
+
     args = parser.parse_args(argv)
     if args.cmd == "knife":
         hits = ulpwise.knife_edges(args.op, args.lo, args.hi, args.tol, args.dtype, args.limit, args.stride)
@@ -62,6 +69,10 @@ def main(argv=None):
             print(f"{name:>26}  {value!r}")
     elif args.cmd == "ulp":
         print(ulpwise.ulp_distance(args.a, args.b, args.dtype))
+    elif args.cmd == "survey":
+        from ulpwise import survey as _survey
+
+        return _survey.main(args)
     return 0
 
 

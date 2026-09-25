@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `ulpwise survey` (`ulpwise.survey`): accuracy survey of 61 elementary and special functions of
+  torch, numpy, scipy and jax against a 200 bit mpmath reference, in ulps of the dtype, with the
+  worst input per row. For torch it also counts inputs where the vectorized kernel and the scalar
+  tail disagree and inputs that would fail the `OpInfo` reference test tolerance, default and per op
+  override, read from `op_db`. Writes `results.csv` and `results.md`. Optional extra
+  `ulpwise[survey]` pulls in mpmath.
+- `studies/accuracy-survey-2026-09`: the first run and its reading notes.
+- Corpus: `max_ulp` check type, and five open cases with the complete patch attached to the issue:
+  pytorch #198448 (`torch.sqrt` float64 rounding), pytorch #198583 (Bessel and Airy `p1evl` leading
+  1), kornia #4838 and #4897 (small angle series), torchvision #9676 (rotated box clamp). Open cases
+  carry `issue`, `pr: null` and `fixed_in_release: null` and stay expected failures until a release
+  contains the fix.
 - Corpus: kornia #4768, `ellipse_to_laf` described the wrong ellipse whenever `b != 0`.
 
 ## 0.1.2 (2026-09-24)
