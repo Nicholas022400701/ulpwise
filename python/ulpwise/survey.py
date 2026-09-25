@@ -586,7 +586,7 @@ def survey(
 def write_csv(results: List[Result], path: str) -> None:
     fields = list(Result.__dataclass_fields__)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
+        w = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
         w.writeheader()
         for r in results:
             w.writerow({k: getattr(r, k) for k in fields})
