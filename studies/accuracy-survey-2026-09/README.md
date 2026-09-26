@@ -60,14 +60,15 @@ made of the dtype default and a per op override, and the survey reads both out o
   `x = 0.9047` (got `1.9074856066876746`, exact `1.9074856057949192`), p99 3.1e6, 46 percent of the
   inputs off by more than 10 ulps. `trigamma` in `Math.h` shifts `x` by 6 and then truncates the
   asymptotic series after the `1/42` term, so the first dropped term, `-1 / (30 x^9)`, is 1e-9 at
-  `x = 6.9`: a single precision recipe. The default float64 tolerance
-  passes it, so no override was ever needed. In float32 the reflection `pi^2 / sin(pi x)^2` at large
-  negative `x` is far worse (`x = -60619`: got 8961, exact 7285) and 86 of 616 inputs fail the
-  float32 tolerance, at inputs the torch tests do not sample.
+  `x = 6.9`: a single precision recipe (pytorch #198663, patch attached). The default float64
+  tolerance passes it, so no override was ever needed. In float32 the reflection
+  `pi^2 / sin(pi x)^2` at large negative `x` is far worse (`x = -60619`: got 8961, exact 7285) and
+  86 of 616 inputs fail the float32 tolerance, at inputs the torch tests do not sample.
 - **`erfcx` in float32** is 44 ulps off at `x = -8.44` and 4 inputs fail torch's float32 tolerance.
   The negative branch computes `2 * exp(x * x) - erfcx(-x)` and `x * x` is rounded in float32
-  before the `exp`. The same rounding gives 157 ulps in float64 at `x = -23.25`. scipy computes in
-  double and rounds: 0.5 ulp.
+  before the `exp`. The same rounding gives 157 ulps in float64 at `x = -23.25`, where scipy's
+  float64 `erfcx` returns the same wrong value (pytorch #198664, patch attached). For float32 scipy
+  computes in double and rounds: 0.5 ulp.
 - **`torch.sqrt` in float64 is not correctly rounded** on this build: 0.62 ulp at `7.24e215`, numpy's
   0.5 (pytorch #198448, the MKL `vdSqrt` path). `exp` 0.62 and `expm1` 0.64 in float64 are the same
   class of near miss.
