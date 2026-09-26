@@ -2,7 +2,7 @@
 
 Numerical conformance testing for ML code. A Rust core with a Python API and a pytest plugin.
 
-`ulpwise` answers three questions that come up every time a numerical test goes red on one
+`ulpwise` answers five questions that come up every time a numerical test goes red on one
 platform and green on another:
 
 1. **Which inputs break first?** Named edge values computed from the float format (the largest
@@ -19,6 +19,10 @@ platform and green on another:
    `ulpwise survey` measures 61 elementary and special functions of torch, numpy, scipy and jax in
    ulps against a 200 bit mpmath reference and, for torch, checks every error against the tolerance
    of torch's own `OpInfo` reference test, default and per op override.
+5. **Where should I read first in a repository I do not know?** `ulpwise scan` parses every Python
+   file and reports the expressions behind the bugs in the corpus (`exp(x * x)`, `sin(pi * x)`,
+   `1 - cos(x)`, `sqrt(a * a + b * b)`, `log(1 + exp(x))`, divisions by an unguarded angle, ...)
+   with file, line and function, then lists the functions with the most elementary math.
 
 ## Why this exists
 
@@ -159,6 +163,40 @@ expected failures until a release contains the fix (`fixed_in_release` in `cases
 in a temporary directory and needs no weights; two more ultralytics fixes (#26240, #26246) are not in
 the corpus yet because their repros need model weights or the COCO evaluator.
 
+## Repository scan
+
+```sh
+ulpwise scan kornia/kornia --report kornia.md        # clone with depth 1, write a Markdown report
+ulpwise scan . --fail-on high                        # CI gate: exit 1 on a high severity finding
+ulpwise scan path/to/repo --rules one-minus-cos,small-angle-division --top 40
+```
+
+The scan is static and needs nothing installed: it parses each file with `ast`, walks every
+function and matches twelve patterns, each with a severity, the reason it loses digits or
+overflows, the usual replacement and, where one exists, the upstream bug it comes from.
+
+| rule | severity | pattern |
+|---|---|---|
+| `exp-of-square` | high | `exp(x * x)`, `exp(x ** 2)`, `(-x.pow(2)).exp()`: the rounding error of the square is multiplied by `x * x / 2` ulps (pytorch #198664) |
+| `sin-of-pi-times` | high | `sin(pi * x)`, `cos(pi * x)`: the product is rounded before the argument reduction (pytorch #198663) |
+| `softplus-by-hand` | high | `log(1 + exp(x))` |
+| `logsumexp-by-hand` | high | `log(exp(a) + exp(b))`, `log(sum(exp(x)))` |
+| `hypot-by-hand` | high | `sqrt(a * a + b * b)` |
+| `sqrt-of-difference` | medium | `sqrt(a - b)` |
+| `one-minus-cos` | medium | `1 - cos(x)` (kornia #4897) |
+| `log1p-by-hand`, `expm1-by-hand` | medium | `log(1 + x)`, `exp(x) - 1` |
+| `atan-of-quotient` | medium | `atan(y / x)` |
+| `small-angle-division` | medium | `/ theta`, `/ theta ** 2`, `/ sin(theta)` in a function that takes `sin` or `cos` of `theta` and has no `where`, `clamp`, `eps` or series in sight (kornia #4838, #4897) |
+| `acos-for-angle` | info | `acos`, `asin` used to recover an angle |
+
+On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 findings. The
+`one-minus-cos` and `small-angle-division` findings are the four lines of `So3.right_jacobian` and
+`So3.left_jacobian` that kornia #4897 fixes, `So3.log` (kornia #4838) is under `acos-for-angle`,
+and `Se3.exp` (also #4897) is under `one-minus-cos`. The scan puts `ellipse_to_laf` (kornia #4768)
+on the list too, for a `sqrt` of a difference; the bug there was a different one, so that entry is
+what the scan is: a reading list, not a verdict. The next step is the dynamic half, running the
+functions the scan points at against a float64 or mpmath reference.
+
 ## Accuracy survey
 
 ```sh
@@ -208,6 +246,8 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 
 ## Roadmap
 
+- `ulpwise scan --run`: import the functions the static scan points at, feed them the edge values
+  and a grid, and measure the float32 result against the float64 one in ulps.
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
 - `float16` and `bfloat16` `spacing`, `next_up`, knife edges and exact oracles (ulp distances and edge values are done).

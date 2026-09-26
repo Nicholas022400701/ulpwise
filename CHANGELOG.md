@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `ulpwise scan`: static scan of a repository (a directory, a GitHub URL or `owner/repo`, cloned
+  with depth 1) for the floating point patterns behind the corpus bugs. Twelve rules with severity,
+  reason, replacement and upstream example: `exp-of-square`, `sin-of-pi-times`, `softplus-by-hand`,
+  `logsumexp-by-hand`, `hypot-by-hand`, `sqrt-of-difference`, `one-minus-cos`, `log1p-by-hand`,
+  `expm1-by-hand`, `atan-of-quotient`, `small-angle-division`, `acos-for-angle`. Findings carry
+  file, line, function and the source line; the report ends with the functions that do the most
+  elementary math. `--report` writes Markdown, `--rules` filters, `--fail-on` gates CI,
+  `--include-tests` widens the walk. On kornia main the four `small-angle-division` and
+  `one-minus-cos` lines are the ones kornia #4897 fixes.
 - `ulp_distance`, `ulp_distances`, `ordered`, `max_ulp` and `assert_max_ulp` take `f16` and
   `bf16`, and `flatten` reads the dtype off float16 and bfloat16 numpy arrays and torch tensors.
   Inputs that are not representable are rounded to nearest even first, so a bfloat16 tensor can be

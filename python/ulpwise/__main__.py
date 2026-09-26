@@ -5,6 +5,7 @@
     python -m ulpwise special f32
     python -m ulpwise ulp 0.9235056042671204 0.9235056638717651 --dtype f32
     python -m ulpwise corpus --repo pytorch
+    python -m ulpwise scan kornia/kornia --report kornia.md
 """
 
 import argparse
@@ -53,6 +54,15 @@ def main(argv=None):
         "--fail-if-present", action="store_true", help="exit 1 when at least one case still shows its bug"
     )
 
+    n = sub.add_parser("scan", help="read a repository for the floating point patterns behind the corpus bugs")
+    n.add_argument("target", help="a directory, a GitHub URL or owner/repo (cloned with depth 1)")
+    n.add_argument("--report", default=None, help="write a Markdown report here instead of printing")
+    n.add_argument("--top", type=int, default=20, help="how many math-heavy functions to list")
+    n.add_argument("--rules", default=None, help="comma separated subset of rule ids")
+    n.add_argument("--include-tests", action="store_true", help="also scan test files and directories")
+    n.add_argument("--fail-on", choices=["high", "medium", "info"], default=None, help="exit 1 when a finding of this severity or worse exists")
+    n.add_argument("--workdir", default=None, help="where to clone (default: a temporary directory)")
+
     args = parser.parse_args(argv)
     if args.cmd == "knife":
         hits = ulpwise.knife_edges(args.op, args.lo, args.hi, args.tol, args.dtype, args.limit, args.stride)
@@ -80,6 +90,10 @@ def main(argv=None):
         from ulpwise import survey as _survey
 
         return _survey.main(args)
+    elif args.cmd == "scan":
+        from ulpwise import scan as _scan
+
+        return _scan.main(args)
     elif args.cmd == "corpus":
         from ulpwise import corpus as _corpus
 
