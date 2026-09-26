@@ -423,6 +423,7 @@
    "symptom": "With task=obb the loader builds the rotated boxes from the polygon points, so a detect dataset arrives as (0, 5) boxes next to n classes: yolo val crashed with IndexError in OBBValidator._prepare_batch and training with a TypeError in the loss. Segment datasets already raised a ValueError at load time; the fix applies the same box/segment count check when use_obb is set, with the task named in the message.",
    "requires": [
     "torch",
+    "cv2",
     "ultralytics"
    ],
    "fixed_in_release": null,

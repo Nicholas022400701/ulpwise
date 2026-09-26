@@ -5,6 +5,9 @@ installed release is not known to contain the fix, so a red run means the bug is
 you have installed, and a green one means it is gone.
 """
 
+import re
+import sys
+
 import pytest
 
 from ulpwise import corpus
@@ -63,3 +66,12 @@ def test_corpus_command_filter_and_exit_code(capsys):
     assert all(line.startswith("timm-") for line in out[:-1])
     present = int(out[-1].split()[0])
     assert code == (1 if present else 0)
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c["id"] for c in CASES])
+def test_corpus_case_declares_its_imports(case):
+    """Every package a repro imports is in `requires`, so a missing one skips the case instead of failing it."""
+    stdlib = set(getattr(sys, "stdlib_module_names", ())) | {"ulpwise", "numpy"}
+    imported = set(re.findall(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", case["repro"], re.M))
+    assert imported - stdlib <= set(case["requires"]), case["id"]
+    assert case["requires"][-1] != "numpy"  # the last entry is the package the bug lived in
