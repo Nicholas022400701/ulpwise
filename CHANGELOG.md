@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `ulp_distance`, `ulp_distances`, `ordered`, `max_ulp` and `assert_max_ulp` take `f16` and
+  `bf16`, and `flatten` reads the dtype off float16 and bfloat16 numpy arrays and torch tensors.
+  Inputs that are not representable are rounded to nearest even first, so a bfloat16 tensor can be
+  measured against a float64 reference; without an explicit dtype the less precise of the two
+  inputs decides. Cross-checked against the numpy int16 view for float16 and the torch view for
+  bfloat16.
 - `ulpwise corpus`: runs the regression corpus against the installed packages without pytest and
   prints one line per case, present, fixed or skipped, with the installed version and the upstream
   reference. `--repo` filters by repository or case id, `--fail-if-present` makes a present bug exit 1.

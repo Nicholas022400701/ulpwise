@@ -1,11 +1,14 @@
 """ulpwise: numerical conformance testing for ML code.
 
 The heavy lifting (ordered float views, exact rounding oracles, knife-edge scans) is in the Rust
-extension ``ulpwise._core``. This module adds the array plumbing and the assertion helpers.
+extension ``ulpwise._core``. This module adds the array plumbing, the assertion helpers and the
+float16 / bfloat16 ulp distances, which are pure Python on top of the 16 bit patterns.
 """
 
 from __future__ import annotations
 
+import math
+import struct
 from typing import Any, Iterable, Optional, Sequence, Tuple
 
 from ._core import (  # noqa: F401
@@ -17,13 +20,13 @@ from ._core import (  # noqa: F401
     neighbours,
     next_down,
     next_up,
-    ordered,
     spacing,
     special,
     sqrt_cr,
-    ulp_distance,
-    ulp_distances,
 )
+from ._core import ordered as _ordered_core
+from ._core import ulp_distance as _ulp_distance_core
+from ._core import ulp_distances as _ulp_distances_core
 
 __version__ = "0.2.0"
 
@@ -57,7 +60,82 @@ _DTYPE_NAMES = {
     "double": "f64",
     "torch.float32": "f32",
     "torch.float64": "f64",
+    "float16": "f16",
+    "f16": "f16",
+    "half": "f16",
+    "torch.float16": "f16",
+    "bfloat16": "bf16",
+    "bf16": "bf16",
+    "torch.bfloat16": "bf16",
 }
+_HALF_DTYPES = ("f16", "bf16")
+_PRECISION_ORDER = ("bf16", "f16", "f32", "f64")  # fewest significand bits first
+
+
+def _check_dtype(dtype: str) -> None:
+    if dtype not in _PRECISION_ORDER:
+        raise ValueError(f"unsupported dtype {dtype!r}: use 'f64', 'f32', 'f16' or 'bf16'")
+
+
+def _bits16(x: float, dtype: str) -> int:
+    """Bit pattern of ``x`` rounded to nearest even in float16 or bfloat16.
+
+    ``struct`` rounds to float16 straight from the double. bfloat16 is the top half of the float32
+    pattern rounded at bit 16; going through float32 first is harmless because 24 bits are more
+    than the 2 * 8 + 2 that make double rounding innocuous. Overflow becomes the signed infinity.
+    """
+    if dtype == "f16":
+        if x != x:
+            return 0xFE00 if math.copysign(1.0, x) < 0 else 0x7E00
+        try:
+            return struct.unpack("<H", struct.pack("<e", x))[0]
+        except OverflowError:
+            return 0xFC00 if x < 0 else 0x7C00
+    try:
+        bits = struct.unpack("<I", struct.pack("<f", x))[0]
+    except OverflowError:
+        return 0xFF80 if x < 0 else 0x7F80
+    if bits & 0x7F800000 == 0x7F800000:  # infinity or NaN: keep the top bits, no rounding
+        return (bits >> 16) | (0x40 if bits & 0x007FFFFF else 0)
+    return (bits + 0x7FFF + ((bits >> 16) & 1)) >> 16
+
+
+def _ordered16(x: float, dtype: str) -> int:
+    bits = _bits16(x, dtype)
+    return -(bits & 0x7FFF) if bits & 0x8000 else bits
+
+
+def ordered(x: float, dtype: str = "f64") -> int:
+    """Monotone integer view of ``x`` in the dtype (-0.0 and +0.0 both map to 0)."""
+    _check_dtype(dtype)
+    if dtype in _HALF_DTYPES:
+        return _ordered16(x, dtype)
+    return _ordered_core(x, dtype)
+
+
+def ulp_distance(a: float, b: float, dtype: str = "f64") -> Optional[int]:
+    """Number of representable floats of the dtype between ``a`` and ``b``, None if either is NaN.
+
+    ``dtype`` is ``f64``, ``f32``, ``f16`` or ``bf16``; values that are not representable in it
+    are rounded to nearest even first.
+    """
+    _check_dtype(dtype)
+    if dtype in _HALF_DTYPES:
+        if a != a or b != b:
+            return None
+        return abs(_ordered16(a, dtype) - _ordered16(b, dtype))
+    return _ulp_distance_core(a, b, dtype)
+
+
+def ulp_distances(a: Sequence[float], b: Sequence[float], dtype: str = "f64") -> list:
+    """Elementwise :func:`ulp_distance` over two equally long sequences."""
+    _check_dtype(dtype)
+    if dtype in _HALF_DTYPES:
+        a, b = list(a), list(b)
+        if len(a) != len(b):
+            raise ValueError(f"length mismatch: {len(a)} vs {len(b)}")
+        return [ulp_distance(x, y, dtype) for x, y in zip(a, b)]
+    return _ulp_distances_core(a, b, dtype)
 
 
 def knife_edges(
@@ -94,7 +172,7 @@ def knife_edges(
 
 def flatten(x: Any, dtype: Optional[str] = None) -> Tuple[list, str]:
     """Turn a float, a nested sequence, a numpy array or a torch tensor into a flat list of Python
-    floats plus the ulpwise dtype name ("f32" or "f64").
+    floats plus the ulpwise dtype name ("f64", "f32", "f16" or "bf16").
 
     The dtype is taken from the array when it has one; Python floats default to "f64". Pass
     ``dtype`` to override. Integer arrays are rejected: ulps only make sense for floats.
@@ -104,12 +182,12 @@ def flatten(x: Any, dtype: Optional[str] = None) -> Tuple[list, str]:
         x = x.detach().cpu()
         inferred = str(x.dtype)
         if inferred not in _DTYPE_NAMES:
-            raise TypeError(f"ulpwise handles float32 and float64 tensors, got {inferred}")
+            raise TypeError(f"ulpwise handles float64, float32, float16 and bfloat16 tensors, got {inferred}")
         values = x.reshape(-1).tolist()
     elif hasattr(x, "dtype") and hasattr(x, "tolist"):  # numpy array or scalar
         inferred = str(x.dtype)
         if inferred not in _DTYPE_NAMES:
-            raise TypeError(f"ulpwise handles float32 and float64 arrays, got {inferred}")
+            raise TypeError(f"ulpwise handles float64, float32 and float16 arrays, got {inferred}")
         values = x.reshape(-1).tolist() if hasattr(x, "reshape") else [x.tolist()]
     elif isinstance(x, (int, float)):
         values = [float(x)]
@@ -137,14 +215,16 @@ def flatten(x: Any, dtype: Optional[str] = None) -> Tuple[list, str]:
 def max_ulp(actual: Any, expected: Any, dtype: Optional[str] = None) -> Tuple[Optional[int], int]:
     """Largest elementwise ulp distance between ``actual`` and ``expected`` and the flat index
     where it occurs. The distance is ``None`` when some element pair involves a NaN on one side
-    only (NaN against NaN counts as 0)."""
+    only (NaN against NaN counts as 0). Without ``dtype`` the distance is measured in ulps of the
+    less precise of the two inputs, so a bfloat16 tensor against a float64 reference is measured in
+    bfloat16 ulps."""
     a, da = flatten(actual, dtype)
     b, db = flatten(expected, dtype)
     if len(a) != len(b):
         raise ValueError(f"shape mismatch: {len(a)} vs {len(b)} elements")
     if not a:
         return 0, 0
-    dt = dtype and _DTYPE_NAMES[dtype] or ("f32" if "f32" in (da, db) else "f64")
+    dt = _DTYPE_NAMES[dtype] if dtype else next(d for d in _PRECISION_ORDER if d in (da, db))
     worst, worst_i = -1, 0
     for i, (x, y, d) in enumerate(zip(a, b, ulp_distances(a, b, dt))):
         if d is None:

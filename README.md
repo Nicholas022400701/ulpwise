@@ -81,8 +81,10 @@ The Rust crate is usable on its own (`cargo add --git https://github.com/Nichola
 ```python
 import ulpwise
 
-# ulp distances, dtype aware: a float32 tensor is measured in float32 ulps.
+# ulp distances, dtype aware: a float32 tensor is measured in float32 ulps, a bfloat16 tensor
+# against a float64 reference in bfloat16 ulps. f64, f32, f16 and bf16.
 ulpwise.ulp_distance(0.9235056042671204, 0.9235056638717651, "f32")   # 1
+ulpwise.ulp_distance(1.0, 1.001, "bf16")                              # 0, both round to 1.0
 ulpwise.assert_max_ulp(torch_out, reference, max_ulp_=2)               # floats, lists, numpy, torch
 
 # the 29 named edge values of a dtype
@@ -207,7 +209,7 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
-- `float16` and `bfloat16` ulps and edge values.
+- `float16` and `bfloat16` edge values, `spacing`, `next_up` and the exact oracles (the ulp distances are done).
 - Exact references for transcendental functions in Rust (correctly rounded `exp`, `log`, ...) so
   the `f64` knife-edge scans do not need mpmath.
 - Survey backends for CUDA and MPS, and `float16` / `bfloat16` rows.

@@ -111,7 +111,58 @@ def test_ulp_distance_matches_numpy_view():
     with pytest.raises(ValueError):
         ulpwise.ulp_distances([1.0], [1.0, 2.0])
     with pytest.raises(ValueError):
-        ulpwise.ulp_distance(1.0, 2.0, "bf16")
+        ulpwise.ulp_distance(1.0, 2.0, "f128")
+
+
+def test_float16_ulp_distance_matches_numpy_view():
+    def numpy_ulps(a, b):
+        i = np.array([a, b], dtype=np.float16).view(np.int16).astype(np.int64)
+        o = np.where(i < 0, -(i & 0x7FFF), i)
+        return int(abs(o[0] - o[1]))
+
+    rng = np.random.default_rng(3)
+    for _ in range(500):
+        a = float(np.float16(rng.normal() * 10.0 ** rng.integers(-6, 5)))
+        b = float(np.float16(a * (1 + rng.normal() * 10.0 ** rng.integers(-4, 0))))
+        assert ulpwise.ulp_distance(a, b, "f16") == numpy_ulps(a, b), (a, b)
+        x = rng.normal() * 10.0 ** rng.integers(-6, 5)  # not representable: rounded to nearest even like numpy
+        assert ulpwise.ulp_distance(x, float(np.float16(x)), "f16") == 0, x
+    assert ulpwise.ulp_distance(1.0, 1 + 2 ** -10, "f16") == 1
+    assert ulpwise.ulp_distance(1.0, 1 + 2 ** -11, "f16") == 0  # tie, rounds to even
+    assert ulpwise.ulp_distance(65504.0, 1e5, "f16") == 1  # the largest float16 and infinity
+    assert ulpwise.ulp_distance(-0.0, 0.0, "f16") == 0
+    assert ulpwise.ulp_distance(float("nan"), 1.0, "f16") is None
+    assert ulpwise.ordered(1.0, "f16") == 0x3C00 and ulpwise.ordered(-1.0, "f16") == -0x3C00
+    assert ulpwise.ulp_distances([1.0, 2.0], [1.0, 2 + 2 ** -9], "f16") == [0, 1]
+    assert ulpwise.flatten(np.float16([1.0]))[1] == "f16"
+    assert ulpwise.max_ulp(np.float16([1.0, 2.0]), [1.0, 2 + 2 ** -9]) == (1, 1)
+    assert ulpwise.max_ulp(np.float16([1.0]), np.float64([1 + 2 ** -10])) == (1, 0)  # the less precise dtype wins
+    assert ulpwise.max_ulp([1.0], [1 + 2 ** -10]) == (2 ** 42, 0)
+
+
+def test_bfloat16_ulp_distance():
+    assert ulpwise.ulp_distance(1.0, 1 + 2 ** -7, "bf16") == 1
+    assert ulpwise.ulp_distance(1.0, 1 + 2 ** -8, "bf16") == 0  # tie, rounds to even
+    assert ulpwise.ulp_distance(1.0, 1 + 3 * 2 ** -8, "bf16") == 2  # tie, rounds up to the even 1 + 2 ** -6
+    assert ulpwise.ulp_distance(3.3895313892515355e38, 1e39, "bf16") == 1  # the largest bfloat16 and infinity
+    assert ulpwise.ulp_distance(3.4028234663852886e38, float("inf"), "bf16") == 0  # float32 max rounds to inf
+    assert ulpwise.ulp_distance(2 ** -133, 0.0, "bf16") == 1 and ulpwise.ulp_distance(2 ** -134, 0.0, "bf16") == 0
+    assert ulpwise.ulp_distance(-0.0, 0.0, "bf16") == 0
+    assert ulpwise.ulp_distance(1.0, float("nan"), "bf16") is None
+    assert ulpwise.ordered(1.0, "bf16") == 0x3F80 and ulpwise.ordered(-1.0, "bf16") == -0x3F80
+    torch = pytest.importorskip("torch")
+    rng = np.random.default_rng(4)
+    for _ in range(500):
+        x = rng.normal() * 10.0 ** rng.integers(-6, 5)
+        t = torch.tensor([x, x * (1 + rng.normal() * 10.0 ** rng.integers(-3, 0))], dtype=torch.float64)
+        a, b = t.to(torch.bfloat16)
+        i = a.view(torch.int16).item(), b.view(torch.int16).item()
+        o = [-(v & 0x7FFF) if v < 0 else v for v in i]
+        assert ulpwise.ulp_distance(a.item(), b.item(), "bf16") == abs(o[0] - o[1]), (a, b)
+        assert ulpwise.ulp_distance(x, a.item(), "bf16") == 0, x  # rounding agrees with torch
+    assert ulpwise.flatten(torch.ones(2, dtype=torch.bfloat16))[1] == "bf16"
+    assert ulpwise.max_ulp(torch.tensor([1.0, 2.0], dtype=torch.bfloat16), [1 + 2 ** -7, 2.0]) == (1, 0)
+    assert ulpwise.assert_max_ulp(torch.tensor([0.1, 0.2], dtype=torch.bfloat16), torch.tensor([0.1, 0.2])) == 0
 
 
 @pytest.mark.parametrize("dtype", ["f32", "f64"])
@@ -204,4 +255,6 @@ def test_cli(capsys):
     assert main(["special", "f64"]) == 0
     assert "square_overflows" in capsys.readouterr().out
     assert main(["ulp", "1.0", "1.0000001192092896", "--dtype", "f32"]) == 0
+    assert capsys.readouterr().out.strip() == "1"
+    assert main(["ulp", "1.0", "1.001", "--dtype", "f16"]) == 0
     assert capsys.readouterr().out.strip() == "1"
