@@ -412,6 +412,25 @@
     "max_ulp": 8
    },
    "before_fix": "[1.4359351282897875e+235, 1.8405856937190814e+36] on torch 2.14.0 (157 and 34 ulp)"
+  },
+  {
+   "id": "ultralytics-26330-obb-dataset-box-only-labels",
+   "repo": "ultralytics/ultralytics",
+   "pr": 26330,
+   "merged_at": "2026-09-25T22:12:25Z",
+   "kind": "crash",
+   "title": "OBB val and train on a dataset with plain box labels crashed deep in the validator or the loss instead of failing at load time",
+   "symptom": "With task=obb the loader builds the rotated boxes from the polygon points, so a detect dataset arrives as (0, 5) boxes next to n classes: yolo val crashed with IndexError in OBBValidator._prepare_batch and training with a TypeError in the loss. Segment datasets already raised a ValueError at load time; the fix applies the same box/segment count check when use_obb is set, with the task named in the message.",
+   "requires": [
+    "torch",
+    "ultralytics"
+   ],
+   "fixed_in_release": null,
+   "repro": "import tempfile\nfrom pathlib import Path\nimport cv2\nimport numpy as np\nfrom ultralytics.cfg import get_cfg\nfrom ultralytics.data import build_yolo_dataset\nroot = Path(tempfile.mkdtemp())\n(root / \"images\").mkdir()\n(root / \"labels\").mkdir()\ncv2.imwrite(str(root / \"images\" / \"0.jpg\"), np.zeros((32, 32, 3), np.uint8))\n(root / \"labels\" / \"0.txt\").write_text(\"0 0.5 0.5 0.4 0.4\\n\")  # a plain box row, not the 4 corners of an OBB\ndata = {\"names\": {0: \"a\"}, \"nc\": 1, \"channels\": 3}\ntry:\n    build_yolo_dataset(get_cfg(overrides={\"task\": \"obb\", \"imgsz\": 32}), str(root / \"images\"), 1, data, mode=\"val\")\n    actual = [\"no error at load time\"]\nexcept ValueError as e:\n    actual = [\"ValueError\" if \"OBB dataset requires equal numbers of boxes and segments\" in str(e) else str(e)]\nexpected = [\"ValueError\"]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "['no error at load time'] on ultralytics 8.4.163: the dataset loads and the crash comes later, in val or in the loss"
   }
  ]
 }

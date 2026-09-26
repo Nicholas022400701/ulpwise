@@ -18,6 +18,8 @@
   float32 reflection argument) and pytorch #198664 (`erfcx` negative branch, `exp` at the rounded
   square), both with the complete patch attached to the issue.
 - Corpus: kornia #4768, `ellipse_to_laf` described the wrong ellipse whenever `b != 0`.
+- Corpus: ultralytics #26330, OBB datasets with plain box labels are rejected at load time; the repro
+  writes a one-image dataset to a temporary directory, so it needs ultralytics but no weights.
 
 ## 0.1.2 (2026-09-24)
 

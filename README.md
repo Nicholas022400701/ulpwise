@@ -138,6 +138,7 @@ known to contain the fix, so the run tells you which bugs are present in your en
 | timm #2791 AdaMuon conv LR scale computed from the wrong dims | scale | 2026-09-18 |
 | timm #2792 Kron `__setstate__` shadowed | crash | 2026-09-18 |
 | peft #3777 pointwise Conv3d took the conv2d 1x1 shortcut | shape | 2026-09-21 |
+| ultralytics #26330 OBB train and val on plain box labels crashed in the validator or the loss instead of at load time | crash | 2026-09-25 |
 | pytorch #198448 `torch.sqrt` float64 not correctly rounded at 27 of 64 knife edges | rounding | open |
 | pytorch #198583 `bessel_j0/j1/y0/y1`, `airy_ai` float64 lose up to 12 digits (`p1evl` leading 1) | digits | open |
 | kornia #4838 `axis_angle_to_rotation_matrix` drops the `theta^2` terms below 1e-3 rad | series | open |
@@ -148,9 +149,9 @@ known to contain the fix, so the run tells you which bugs are present in your en
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet; they are
 expected failures until a release contains the fix (`fixed_in_release` in `cases.json`), and the
-`max_ulp` check type measures the digits directly. Two ultralytics fixes (#26240, #26246) are not
-in the corpus yet because their repros need model weights and a dataset layout; they will come with
-fixtures.
+`max_ulp` check type measures the digits directly. The ultralytics case builds its one-image dataset
+in a temporary directory and needs no weights; two more ultralytics fixes (#26240, #26246) are not in
+the corpus yet because their repros need model weights or the COCO evaluator.
 
 ## Accuracy survey
 
