@@ -123,6 +123,9 @@ project grew out of, each with a runnable repro, the buggy behaviour quoted from
 request, and the check that tells the two apart. `pytest tests/test_corpus.py` runs every case
 whose packages are installed; a case is an expected failure while the installed release is not
 known to contain the fix, so the run tells you which bugs are present in your environment.
+`ulpwise corpus` does the same without pytest, one line per case with the installed version and
+`present`, `fixed` or `skipped`; `ulpwise corpus --repo pytorch --fail-if-present` is the CI gate
+form.
 
 | case | kind | merged |
 |---|---|---|

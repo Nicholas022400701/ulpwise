@@ -39,3 +39,27 @@ def test_corpus_case(case, request):
             )
         )
     corpus.run(case)
+
+
+def test_corpus_command_reports_every_case(capsys):
+    """`ulpwise corpus` prints one line per case and a summary, whatever is installed."""
+    from ulpwise.__main__ import main
+
+    assert main(["corpus"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    ids = [line.split()[0] for line in out[:-1]]
+    assert ids == [c["id"] for c in CASES]
+    assert all(any(state in line.split() for state in ("present", "fixed", "skipped")) for line in out[:-1])
+    present, fixed, skipped = (int(word) for word in out[-1].split() if word.isdigit())
+    assert present + fixed + skipped == len(CASES)
+
+
+def test_corpus_command_filter_and_exit_code(capsys):
+    """--repo narrows the cases; --fail-if-present turns a present bug into exit code 1."""
+    from ulpwise.__main__ import main
+
+    code = main(["corpus", "--repo", "timm", "--fail-if-present"])
+    out = capsys.readouterr().out.splitlines()
+    assert all(line.startswith("timm-") for line in out[:-1])
+    present = int(out[-1].split()[0])
+    assert code == (1 if present else 0)

@@ -11,7 +11,7 @@ import importlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _CASES = Path(__file__).with_name("cases.json")
 
@@ -75,3 +75,38 @@ def run(case: Dict[str, Any]) -> None:
             raise ValueError(f"unknown check type {kind!r}")
         if not ok:
             raise AssertionError(f"{case['id']}: element {i}: actual={a!r} expected={e!r} ({kind} check)")
+
+
+def status(case: Dict[str, Any]) -> Tuple[str, str]:
+    """Run one case and classify the outcome without raising.
+
+    Returns ``("skipped", "needs torch, kornia")`` when a requirement is missing, ``("present", detail)``
+    when the repro still shows the bug and ``("fixed", "")`` when it does not. Any exception counts as
+    present, the same way the pytest run treats it: the repro is written against the fixed behaviour, and
+    several bugs in the corpus are crashes.
+    """
+    missing = missing_requirements(case)
+    if missing:
+        return "skipped", "needs " + ", ".join(missing)
+    try:
+        run(case)
+    except AssertionError as exc:
+        return "present", str(exc).split(": ", 1)[-1]
+    except Exception as exc:  # noqa: BLE001
+        return "present", f"{type(exc).__name__}: {exc}"
+    return "fixed", ""
+
+
+def report(cases: List[Dict[str, Any]], out) -> Dict[str, int]:
+    """Print one line per case and a summary; return the counts per state."""
+    counts = {"present": 0, "fixed": 0, "skipped": 0}
+    width = max(len(c["id"]) for c in cases) if cases else 2
+    for case in cases:
+        state, detail = status(case)
+        counts[state] += 1
+        installed = f"{case['requires'][-1]} {installed_version(case) or '-'}"
+        ref = f"#{case['pr']}" if case.get("pr") else f"issue #{case.get('issue')}"
+        line = f"{case['id']:<{width}}  {installed:<26} {state:<8} {ref:<14}"
+        print(line + (f" {detail}" if detail else ""), file=out)
+    print(f"{counts['present']} present, {counts['fixed']} fixed, {counts['skipped']} skipped", file=out)
+    return counts

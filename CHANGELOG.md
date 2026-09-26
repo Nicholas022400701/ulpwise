@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `ulpwise corpus`: runs the regression corpus against the installed packages without pytest and
+  prints one line per case, present, fixed or skipped, with the installed version and the upstream
+  reference. `--repo` filters by repository or case id, `--fail-if-present` makes a present bug exit 1.
+  Any exception from a repro counts as present, like the pytest run: several corpus bugs are crashes.
+
 ## 0.2.0 (2026-09-26)
 
 - `ulpwise survey` (`ulpwise.survey`): accuracy survey of 61 elementary and special functions of

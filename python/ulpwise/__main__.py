@@ -4,6 +4,7 @@
     python -m ulpwise midpoint sqrt 0.8528626561164856 --dtype f32
     python -m ulpwise special f32
     python -m ulpwise ulp 0.9235056042671204 0.9235056638717651 --dtype f32
+    python -m ulpwise corpus --repo pytorch
 """
 
 import argparse
@@ -46,6 +47,12 @@ def main(argv=None):
     v.add_argument("--functions", default=None, help="comma separated subset of function names")
     v.add_argument("--out", default="survey", help="output directory for results.csv and results.md")
 
+    c = sub.add_parser("corpus", help="run the regression corpus against the installed packages")
+    c.add_argument("--repo", default=None, help="only cases whose repository or id contains this text, e.g. timm")
+    c.add_argument(
+        "--fail-if-present", action="store_true", help="exit 1 when at least one case still shows its bug"
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "knife":
         hits = ulpwise.knife_edges(args.op, args.lo, args.hi, args.tol, args.dtype, args.limit, args.stride)
@@ -73,6 +80,12 @@ def main(argv=None):
         from ulpwise import survey as _survey
 
         return _survey.main(args)
+    elif args.cmd == "corpus":
+        from ulpwise import corpus as _corpus
+
+        cases = [k for k in _corpus.load() if not args.repo or args.repo in k["repo"] or args.repo in k["id"]]
+        counts = _corpus.report(cases, sys.stdout)
+        return 1 if args.fail_if_present and counts["present"] else 0
     return 0
 
 
