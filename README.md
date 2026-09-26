@@ -143,6 +143,8 @@ known to contain the fix, so the run tells you which bugs are present in your en
 | kornia #4838 `axis_angle_to_rotation_matrix` drops the `theta^2` terms below 1e-3 rad | series | open |
 | kornia #4897 `So3.log`, the `So3` Jacobians and `Se3.exp/log` lose all digits for small angles | series | open |
 | torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |
+| pytorch #198663 `polygamma(1, x)` float64 keeps 9 digits (series stops at `1/42`), float32 loses all for large negative `x` | truncation, rounding | open |
+| pytorch #198664 `erfcx` off by `x*x/2` ulps for negative `x` (`exp` at the rounded square) | rounding | open |
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet; they are
 expected failures until a release contains the fix (`fixed_in_release` in `cases.json`), and the

@@ -14,6 +14,9 @@
   1), kornia #4838 and #4897 (small angle series), torchvision #9676 (rotated box clamp). Open cases
   carry `issue`, `pr: null` and `fixed_in_release: null` and stay expected failures until a release
   contains the fix.
+- Corpus: three more open cases, pytorch #198663 (`polygamma(1, x)`: float64 series truncation and
+  float32 reflection argument) and pytorch #198664 (`erfcx` negative branch, `exp` at the rounded
+  square), both with the complete patch attached to the issue.
 - Corpus: kornia #4768, `ellipse_to_laf` described the wrong ellipse whenever `b != 0`.
 
 ## 0.1.2 (2026-09-24)

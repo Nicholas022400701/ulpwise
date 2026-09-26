@@ -35,7 +35,7 @@ def test_corpus_case(case, request):
             pytest.mark.xfail(
                 strict=False,
                 reason=f"installed {case['requires'][-1]} {corpus.installed_version(case)} is not known to contain "
-                f"the fix from {case['repo']}#{case['pr']}",
+                f"the fix from {case['repo']}#{case['pr'] or case.get('issue')}",
             )
         )
     corpus.run(case)
