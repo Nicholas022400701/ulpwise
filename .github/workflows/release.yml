@@ -2,7 +2,8 @@
 # uploads them to PyPI through trusted publishing (no API token stored anywhere):
 # the PyPI project "ulpwise" must list this repository, this workflow file name and the
 # "pypi" environment as its publisher. A manual run only builds and checks the wheels,
-# unless its "publish" input is set, in which case it also uploads and tags the commit.
+# unless its "publish" input is set, in which case it also uploads, tags the commit and
+# creates the GitHub release with the CHANGELOG section as notes and the wheels attached.
 name: release
 
 on:
@@ -119,3 +120,20 @@ jobs:
         run: |
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
+      - name: GitHub release with the CHANGELOG section as notes and the wheels attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - > notes.md <<'EOF'
+          import os, re
+          version = os.environ["VERSION"]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"^## " + re.escape(version) + r"\b.*?\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+          print(m.group(1).strip() if m else f"ulpwise {version}, see CHANGELOG.md")
+          EOF
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            gh release upload "v$VERSION" dist/* --clobber
+          else
+            gh release create "v$VERSION" dist/* --title "ulpwise $VERSION" --notes-file notes.md
+          fi
