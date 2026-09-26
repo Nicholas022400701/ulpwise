@@ -201,17 +201,30 @@ imported and called with the same 91 point grid (both signs of `1e-8` to `1e3`, 
 required argument, in float32 and in float64, torch first and numpy second, and the float32 result
 is measured against the float64 one. Two numbers per function: `at scale`, the largest absolute
 error in ulps of the largest output, and `elementwise`, the worst per element ulp distance with
-the input where it happens. Read `at scale` first: a rotation matrix has entries that should be
-zero, and there the elementwise count compares float32 rounding noise with float64 rounding noise
-and reaches `1e9` while the matrix is fine to a quarter of an ulp. A small angle formula without a
-guard, `(1 - cos(theta)) / theta ** 2`, shows `9e6` in both columns. Functions that need other
-arguments, are methods, fail to import or return something that is not a float array are counted
-with the reason and skipped, never guessed at. This imports and runs the repository's code, so use
-it on code you would import anyway.
+the input where it happens. Read both. A rotation matrix has entries that should be zero, and
+there the elementwise count compares float32 rounding noise with float64 rounding noise and reaches
+`1e9` while the matrix is fine to one ulp at scale. A function whose output spans forty orders of
+magnitude, a Bessel function, has a meaningless `at scale` number and a meaningful elementwise one.
+A small angle formula without a guard, `(1 - cos(theta)) / theta ** 2`, shows `9e6` in both
+columns. Static methods run; instance methods, functions that need other arguments, fail to import
+or return something that is not a float array are counted with the reason and skipped, never
+guessed at. This imports and runs the repository's code, from the scanned tree, or from the
+package installed in the environment with `--run-installed` when the tree has unbuilt extensions.
 
 ```sh
-ulpwise scan kornia/kornia --run --run-limit 120 --report kornia.md
+ulpwise scan kornia/kornia --run --run-limit 200 --report kornia.md
+ulpwise scan pytorch/vision --run --run-installed --run-limit 150
 ```
+
+On kornia main 9 of the 200 busiest functions run as is, the rest are instance methods or want
+shaped inputs. `adjust_log` is on both lists: the static scan flags its `(1 + image).log2()` as
+`log1p-by-hand`, and the run shows `8.7e8` elementwise ulps at `x = 5.6e-8` next to `0.7` ulps at
+scale, which is the right reading for a function defined on images in `[0, 1]`.
+
+In ML repositories most `high` findings are learning rate schedules (`cos(pi * progress)` with
+`progress` in `[0, 1]`) and pixel distances (`sqrt(dx * dx + dy * dy)` on coordinates below
+`1e4`), where the argument is bounded and the pattern is harmless. The scan cannot know the bound;
+the reading list is where that judgement happens.
 
 ## Accuracy survey
 

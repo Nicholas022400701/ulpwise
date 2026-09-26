@@ -158,6 +158,9 @@ RUN_SNIPPET = textwrap.dedent(
         @staticmethod
         def method(x):
             return torch.exp(x * x)
+
+        def bound(self, x):
+            return torch.exp(x)
     '''
 )
 
@@ -177,9 +180,10 @@ def test_run_measures_float32_against_float64(tmp_path, capsys):
     assert results["two_args"].status == "ran" and results["two_args"].worst <= 2
     assert results["needs_three"].status == "needs 3 positional arguments"
     assert results["returns_str"].status == "did not return a float array"
-    assert results["K.method"].status == "method or nested function"
+    assert results["K.method"].status == "ran" and results["K.method"].worst is not None  # static methods run
+    assert results["K.bound"].status == "instance method"
     text = scan.render_run(list(results.values()))
-    assert text.splitlines()[1].startswith("7 functions tried, 4 ran, 3 skipped") and "unguarded" in text.splitlines()[2]
+    assert text.splitlines()[1].startswith("8 functions tried, 5 ran, 3 skipped") and "unguarded" in text.splitlines()[2]
     from ulpwise.__main__ import main
 
     report = tmp_path / "scan.md"

@@ -479,37 +479,54 @@ def _call(fn, n_args: int, values: Sequence[float], backend: str):
     return out32.reshape(-1).tolist(), out64.astype(np.float32).reshape(-1).tolist()
 
 
-def run_functions(root: str, spots: Sequence[HotSpot], limit: int = 50) -> List[RunResult]:
+def _resolve(module, qualname: str):
+    """Walk ``Class.method`` style names. Returns (callable, reason) with one of them None."""
+    obj = module
+    for part in qualname.split("."):
+        try:
+            obj = getattr(obj, part)
+        except AttributeError:
+            return None, "nested function or not importable by name"
+    if not callable(obj):
+        return None, "not callable"
+    if inspect.isclass(obj):
+        return None, "a class"
+    try:
+        params = list(inspect.signature(obj).parameters.values())
+    except (TypeError, ValueError):
+        return None, "no signature"
+    if params and params[0].name in ("self", "cls") and "." in qualname:
+        return None, "instance method"
+    return obj, None
+
+
+def run_functions(root: str, spots: Sequence[HotSpot], limit: int = 50, installed: bool = False) -> List[RunResult]:
     """Import the module level functions among ``spots``, call each with the same float32 and
     float64 grid for every required argument (torch first, then numpy) and measure the float32
     result against the float64 one rounded to float32, in float32 ulps.
 
-    This imports and runs the repository's code. Anything that fails to import, needs other
-    arguments or returns something that is not a float array is reported with the reason, not
-    guessed at.
+    This imports and runs the repository's code, from the scanned tree unless ``installed`` asks
+    for the environment's copy of the package (useful when the tree has unbuilt extensions).
+    Static methods run; instance methods, anything that fails to import, needs other arguments
+    or returns something that is not a float array is reported with the reason, not guessed at.
     """
-    for base in (root, os.path.join(root, "src"), os.path.join(root, "python")):
-        if os.path.isdir(base) and base not in sys.path:
-            sys.path.insert(0, base)
+    if not installed:
+        for base in (root, os.path.join(root, "src"), os.path.join(root, "python")):
+            if os.path.isdir(base) and base not in sys.path:
+                sys.path.insert(0, base)
     values = _grid()
     results: List[RunResult] = []
     for spot in list(spots)[:limit]:
-        if "." in spot.function:
-            results.append(RunResult(spot, "method or nested function"))
-            continue
         try:
-            fn = getattr(importlib.import_module(_module_name(spot.path)), spot.function, None)
+            module = importlib.import_module(_module_name(spot.path))
         except BaseException as e:  # noqa: BLE001, repository code can raise anything on import
             results.append(RunResult(spot, f"import failed: {type(e).__name__}"))
             continue
-        if not callable(fn):
-            results.append(RunResult(spot, "not importable by name"))
+        fn, reason = _resolve(module, spot.function)
+        if fn is None:
+            results.append(RunResult(spot, reason))
             continue
-        try:
-            params = list(inspect.signature(fn).parameters.values())
-        except (TypeError, ValueError):
-            results.append(RunResult(spot, "no signature"))
-            continue
+        params = list(inspect.signature(fn).parameters.values())
         required = [
             p for p in params
             if p.default is p.empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
@@ -589,7 +606,8 @@ def main(args) -> int:
         findings = [f for f in findings if f.rule in wanted]
     text = render(findings, spots, args.target, sha, nfiles, args.top, markdown=bool(args.report))
     if getattr(args, "run", False):
-        text += "\n" + render_run(run_functions(root, spots, args.run_limit), markdown=bool(args.report))
+        results = run_functions(root, spots, args.run_limit, getattr(args, "run_installed", False))
+        text += "\n" + render_run(results, markdown=bool(args.report))
     if args.report:
         with open(args.report, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)

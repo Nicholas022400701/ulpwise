@@ -13,7 +13,9 @@
   `one-minus-cos` lines are the ones kornia #4897 fixes.
 - `ulpwise scan --run`: imports the math-heavy module level functions and calls them on the same
   grid in float32 and float64, reporting the largest error in ulps of the largest output and the
-  worst elementwise ulp distance with its input. Skips carry their reason. `--run-limit` bounds it.
+  worst elementwise ulp distance with its input. Static methods run, instance methods and other
+  skips carry their reason. `--run-limit` bounds it, `--run-installed` imports the installed package
+  instead of the scanned tree.
 - `ulp_distance`, `ulp_distances`, `ordered`, `max_ulp` and `assert_max_ulp` take `f16` and
   `bf16`, and `flatten` reads the dtype off float16 and bfloat16 numpy arrays and torch tensors.
   Inputs that are not representable are rounded to nearest even first, so a bfloat16 tensor can be

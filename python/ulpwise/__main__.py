@@ -67,6 +67,10 @@ def main(argv=None):
         help="import the math-heavy functions and compare float32 with float64 on a grid (runs the repository's code)",
     )
     n.add_argument("--run-limit", type=int, default=50, help="how many functions --run tries, from the top of the list")
+    n.add_argument(
+        "--run-installed", action="store_true",
+        help="--run imports the package installed in this environment instead of the scanned tree",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "knife":
