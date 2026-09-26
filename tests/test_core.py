@@ -12,7 +12,7 @@ import ulpwise
 
 getcontext().prec = 80
 
-NP = {"f32": np.float32, "f64": np.float64}
+NP = {"f32": np.float32, "f64": np.float64, "f16": np.float16}
 
 
 def rounded_in(x, dtype):
@@ -165,7 +165,7 @@ def test_bfloat16_ulp_distance():
     assert ulpwise.assert_max_ulp(torch.tensor([0.1, 0.2], dtype=torch.bfloat16), torch.tensor([0.1, 0.2])) == 0
 
 
-@pytest.mark.parametrize("dtype", ["f32", "f64"])
+@pytest.mark.parametrize("dtype", ["f32", "f64", "f16"])
 def test_special_values_do_what_their_names_say(dtype):
     t = NP[dtype]
     s = dict(ulpwise.special(dtype))
@@ -182,7 +182,37 @@ def test_special_values_do_what_their_names_say(dtype):
         assert t(s["one_plus_ulp"]) == np.nextafter(t(1), t(2))
         assert t(s["max_subnormal"]) == np.nextafter(np.finfo(t).tiny, t(0))
         assert math.isnan(s["nan"]) and s["inf"] == math.inf and s["neg_zero"] == 0 and math.copysign(1, s["neg_zero"]) < 0
+        assert s["max"] == float(np.finfo(t).max) and s["min_normal"] == float(np.finfo(t).tiny)
+        assert s["e"] == float(t(math.e)) and s["pi"] == float(t(math.pi)) and s["third"] == float(t(1 / 3))
+        assert all(v == float(t(v)) or math.isnan(v) for v in s.values())
     assert len(s) == 29
+
+
+def test_bfloat16_special_values_do_what_their_names_say():
+    torch = pytest.importorskip("torch")
+    b = torch.bfloat16
+    s = dict(ulpwise.special("bf16"))
+    assert len(s) == 29 and [n for n, _ in ulpwise.special("bf16")] == [n for n, _ in ulpwise.special("f32")]
+
+    def t(x):
+        return torch.tensor(x, dtype=torch.float64).to(b)
+
+    v = t(s["square_underflows_to_zero"])
+    nv = torch.nextafter(v, t(1.0))
+    assert (v * v).item() == 0 and (nv * nv).item() > 0
+    tiny = torch.finfo(b).tiny
+    v = t(s["square_is_subnormal"])
+    assert 0 < (v * v).item() < tiny
+    v, w = t(s["square_just_finite"]), t(s["square_overflows"])
+    assert math.isfinite((v * v).item()) and math.isinf((w * w).item())
+    v = t(s["reciprocal_overflows"])
+    assert math.isinf((t(1.0) / v).item()) and math.isfinite((t(1.0) / torch.nextafter(v, t(1.0))).item())
+    assert (t(s["integer_limit"]) + t(1.0)).item() == s["integer_limit"]
+    assert s["one_plus_ulp"] == torch.nextafter(t(1.0), t(2.0)).item()
+    assert s["max_subnormal"] == torch.nextafter(torch.tensor(tiny, dtype=b), t(0.0)).item()
+    assert s["max"] == torch.finfo(b).max and s["min_normal"] == tiny and s["min_subnormal"] == tiny * 2 ** -7
+    assert s["e"] == t(math.e).item() and s["pi"] == t(math.pi).item() and s["tenth"] == t(0.1).item()
+    assert all(t(v).item() == v or math.isnan(v) for v in s.values())
 
 
 def test_neighbours_spacing_and_binades():
@@ -245,6 +275,11 @@ def test_pytest_plugin_parametrizes_edge_values(edge_f32, edge_f64, assert_max_u
     assert assert_max_ulp is ulpwise.assert_max_ulp
 
 
+def test_pytest_plugin_parametrizes_half_edge_values(edge_f16, edge_bf16):
+    assert edge_f16 == float(np.float16(edge_f16)) or math.isnan(edge_f16)
+    assert ulpwise.ulp_distance(edge_bf16, edge_bf16, "bf16") in (0, None)
+
+
 def test_cli(capsys):
     from ulpwise.__main__ import main
 
@@ -254,6 +289,8 @@ def test_cli(capsys):
     assert "knife edge" in capsys.readouterr().err
     assert main(["special", "f64"]) == 0
     assert "square_overflows" in capsys.readouterr().out
+    assert main(["special", "f16"]) == 0
+    assert "65504.0" in capsys.readouterr().out
     assert main(["ulp", "1.0", "1.0000001192092896", "--dtype", "f32"]) == 0
     assert capsys.readouterr().out.strip() == "1"
     assert main(["ulp", "1.0", "1.001", "--dtype", "f16"]) == 0

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import struct
+from fractions import Fraction
 from typing import Any, Iterable, Optional, Sequence, Tuple
 
 from ._core import (  # noqa: F401
@@ -21,10 +22,10 @@ from ._core import (  # noqa: F401
     next_down,
     next_up,
     spacing,
-    special,
     sqrt_cr,
 )
 from ._core import ordered as _ordered_core
+from ._core import special as _special_core
 from ._core import ulp_distance as _ulp_distance_core
 from ._core import ulp_distances as _ulp_distances_core
 
@@ -103,6 +104,81 @@ def _bits16(x: float, dtype: str) -> int:
 def _ordered16(x: float, dtype: str) -> int:
     bits = _bits16(x, dtype)
     return -(bits & 0x7FFF) if bits & 0x8000 else bits
+
+
+def _from_bits16(bits: int, dtype: str) -> float:
+    if dtype == "f16":
+        return struct.unpack("<e", struct.pack("<H", bits))[0]
+    return struct.unpack("<f", struct.pack("<I", bits << 16))[0]
+
+
+def _round16(x: float, dtype: str) -> float:
+    return _from_bits16(_bits16(x, dtype), dtype)
+
+
+def _step16(x: float, dtype: str, n: int) -> float:
+    """``x`` moved ``n`` representable values up (``n > 0``) or down in the 16 bit dtype."""
+    o = _ordered16(x, dtype) + n
+    return _from_bits16(-o | 0x8000 if o < 0 else o, dtype)
+
+
+def _special16(dtype: str) -> list:
+    """The 29 named edge values of float16 (p = 11, emin = -14, emax = 15) or bfloat16 (p = 8,
+    emin = -126, emax = 127), the same names and meanings as the Rust ``special`` for f32 and f64."""
+    p, emin, emax = (11, -14, 15) if dtype == "f16" else (8, -126, 127)
+    fmax = (2 - 2.0 ** (1 - p)) * 2.0**emax
+    min_subnormal = 2.0 ** (emin - p + 1)
+    below = Fraction(2) ** (emin - p)  # half the smallest subnormal: a square this small rounds to zero
+    sq_zero = _round16(math.sqrt(2.0 ** (emin - p)), dtype)
+    while Fraction(sq_zero) ** 2 > below:
+        sq_zero = _step16(sq_zero, dtype, -1)
+    while Fraction(_step16(sq_zero, dtype, 1)) ** 2 <= below:
+        sq_zero = _step16(sq_zero, dtype, 1)
+    overflow = (Fraction(2) - Fraction(2) ** -p) * Fraction(2) ** emax  # max plus half an ulp: rounds to infinity
+    sq_finite = _round16(math.sqrt(fmax), dtype)
+    while Fraction(sq_finite) ** 2 >= overflow:
+        sq_finite = _step16(sq_finite, dtype, -1)
+    while Fraction(_step16(sq_finite, dtype, 1)) ** 2 < overflow:
+        sq_finite = _step16(sq_finite, dtype, 1)
+    return [
+        ("zero", 0.0),
+        ("neg_zero", -0.0),
+        ("min_subnormal", min_subnormal),
+        ("neg_min_subnormal", -min_subnormal),
+        ("max_subnormal", 2.0**emin - min_subnormal),
+        ("min_normal", 2.0**emin),
+        ("neg_min_normal", -(2.0**emin)),
+        ("reciprocal_overflows", 2.0 ** -(emax + 1)),
+        ("square_underflows_to_zero", sq_zero),
+        ("square_is_subnormal", _step16(2.0 ** (emin // 2), dtype, -1)),
+        ("tenth", _round16(0.1, dtype)),
+        ("third", _round16(1 / 3, dtype)),
+        ("half", 0.5),
+        ("one_minus_ulp", _step16(1.0, dtype, -1)),
+        ("one", 1.0),
+        ("one_plus_ulp", _step16(1.0, dtype, 1)),
+        ("neg_one", -1.0),
+        ("two", 2.0),
+        ("e", _round16(math.e, dtype)),
+        ("pi", _round16(math.pi, dtype)),
+        ("integer_limit", 2.0**p),
+        ("sqrt_max", _round16(math.sqrt(fmax), dtype)),
+        ("square_just_finite", sq_finite),
+        ("square_overflows", _step16(sq_finite, dtype, 1)),
+        ("max", fmax),
+        ("neg_max", -fmax),
+        ("inf", math.inf),
+        ("neg_inf", -math.inf),
+        ("nan", math.nan),
+    ]
+
+
+def special(dtype: str = "f32") -> list:
+    """Named edge values of the dtype as (name, value) pairs; ``f64``, ``f32``, ``f16`` or ``bf16``."""
+    _check_dtype(dtype)
+    if dtype in _HALF_DTYPES:
+        return _special16(dtype)
+    return _special_core(dtype)
 
 
 def ordered(x: float, dtype: str = "f64") -> int:

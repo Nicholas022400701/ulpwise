@@ -8,6 +8,10 @@
   measured against a float64 reference; without an explicit dtype the less precise of the two
   inputs decides. Cross-checked against the numpy int16 view for float16 and the torch view for
   bfloat16.
+- `special("f16")` and `special("bf16")`: the same 29 named edge values as f32 and f64, so
+  `edge_values`, the `edge_f16` and `edge_bf16` pytest fixtures and `ulpwise special f16` work.
+  Every value satisfies the same checks as the f32 and f64 tables, run through numpy for float16
+  and torch for bfloat16.
 - `ulpwise corpus`: runs the regression corpus against the installed packages without pytest and
   prints one line per case, present, fixed or skipped, with the installed version and the upstream
   reference. `--repo` filters by repository or case id, `--fail-if-present` makes a present bug exit 1.

@@ -87,8 +87,9 @@ ulpwise.ulp_distance(0.9235056042671204, 0.9235056638717651, "f32")   # 1
 ulpwise.ulp_distance(1.0, 1.001, "bf16")                              # 0, both round to 1.0
 ulpwise.assert_max_ulp(torch_out, reference, max_ulp_=2)               # floats, lists, numpy, torch
 
-# the 29 named edge values of a dtype
+# the 29 named edge values of a dtype, f64 f32 f16 bf16
 dict(ulpwise.special("f32"))["square_underflows_to_zero"]              # 2.6469779601696886e-23, the largest x with x * x == 0
+dict(ulpwise.special("bf16"))["square_overflows"]                      # 1.8446744073709552e+19, 2 ** 64
 
 # exact placement of a result relative to its rounding midpoint
 ulpwise.midpoint("sqrt", 0.8528626561164856, "f32")   # (0.9235056042671204, 0.000377, True, False)
@@ -107,8 +108,8 @@ ulpwise.sqrt_cr(0.8528626561164856, "f32")            # 0.9235056042671204
 
 ### pytest plugin
 
-Installed automatically. A test that takes `edge_f32` or `edge_f64` runs once per named edge
-value, and `assert_max_ulp` is available as a fixture:
+Installed automatically. A test that takes `edge_f64`, `edge_f32`, `edge_f16` or `edge_bf16` runs
+once per named edge value, and `assert_max_ulp` is available as a fixture:
 
 ```python
 def test_my_kernel_survives_the_edges(edge_f32, assert_max_ulp):
@@ -209,7 +210,7 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
-- `float16` and `bfloat16` edge values, `spacing`, `next_up` and the exact oracles (the ulp distances are done).
+- `float16` and `bfloat16` `spacing`, `next_up`, knife edges and exact oracles (ulp distances and edge values are done).
 - Exact references for transcendental functions in Rust (correctly rounded `exp`, `log`, ...) so
   the `f64` knife-edge scans do not need mpmath.
 - Survey backends for CUDA and MPS, and `float16` / `bfloat16` rows.
