@@ -29,7 +29,7 @@ from ._core import special as _special_core
 from ._core import ulp_distance as _ulp_distance_core
 from ._core import ulp_distances as _ulp_distances_core
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "UNARY_OPS",

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ulpwise"
-version = "0.2.0"
+version = "0.3.0"
 description = "Numerical conformance testing for ML code: float edge values, exact rounding oracles, knife-edge finders and a pytest plugin"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }

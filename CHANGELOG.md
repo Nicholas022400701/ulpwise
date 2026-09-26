@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-09-26)
 
 - `ulpwise scan`: static scan of a repository (a directory, a GitHub URL or `owner/repo`, cloned
   with depth 1) for the floating point patterns behind the corpus bugs. Twelve rules with severity,
