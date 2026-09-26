@@ -194,8 +194,24 @@ On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 fi
 `So3.left_jacobian` that kornia #4897 fixes, `So3.log` (kornia #4838) is under `acos-for-angle`,
 and `Se3.exp` (also #4897) is under `one-minus-cos`. The scan puts `ellipse_to_laf` (kornia #4768)
 on the list too, for a `sqrt` of a difference; the bug there was a different one, so that entry is
-what the scan is: a reading list, not a verdict. The next step is the dynamic half, running the
-functions the scan points at against a float64 or mpmath reference.
+what the scan is: a reading list, not a verdict.
+
+`--run` adds the dynamic half. The module level functions with the most elementary math are
+imported and called with the same 91 point grid (both signs of `1e-8` to `1e3`, and zero) for every
+required argument, in float32 and in float64, torch first and numpy second, and the float32 result
+is measured against the float64 one. Two numbers per function: `at scale`, the largest absolute
+error in ulps of the largest output, and `elementwise`, the worst per element ulp distance with
+the input where it happens. Read `at scale` first: a rotation matrix has entries that should be
+zero, and there the elementwise count compares float32 rounding noise with float64 rounding noise
+and reaches `1e9` while the matrix is fine to a quarter of an ulp. A small angle formula without a
+guard, `(1 - cos(theta)) / theta ** 2`, shows `9e6` in both columns. Functions that need other
+arguments, are methods, fail to import or return something that is not a float array are counted
+with the reason and skipped, never guessed at. This imports and runs the repository's code, so use
+it on code you would import anyway.
+
+```sh
+ulpwise scan kornia/kornia --run --run-limit 120 --report kornia.md
+```
 
 ## Accuracy survey
 
@@ -246,8 +262,8 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 
 ## Roadmap
 
-- `ulpwise scan --run`: import the functions the static scan points at, feed them the edge values
-  and a grid, and measure the float32 result against the float64 one in ulps.
+- `ulpwise scan --run` for methods and functions with tensor shape requirements, by reading the
+  docstring and the checks for the shapes, and an mpmath reference for the scalar functions.
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
 - `float16` and `bfloat16` `spacing`, `next_up`, knife edges and exact oracles (ulp distances and edge values are done).

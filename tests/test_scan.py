@@ -121,3 +121,67 @@ def test_scan_cli(tmp_path, capsys):
     assert "acos-for-angle [info] x1" in out and "exp-of-square" not in out
     assert main(["scan", str(tmp_path), "--rules", "no-such-rule"]) == 2
     assert main(["scan", str(tmp_path / "missing")]) == 2
+
+
+RUN_SNIPPET = textwrap.dedent(
+    '''
+    import torch
+
+
+    def unguarded(theta):
+        return (1 - torch.cos(theta)) / theta ** 2
+
+
+    def guarded(theta):
+        t2 = theta * theta
+        series = 0.5 - t2 / 24 + t2 * t2 / 720 - t2 * t2 * t2 / 40320
+        return torch.where(theta.abs() < 0.5, series, (1 - torch.cos(theta)) / t2)
+
+
+    def cancels(x):
+        return torch.stack([torch.cos(0 * x), (1 + x) - 1 - x], -1)
+
+
+    def two_args(a, b):
+        return torch.sqrt(a * a + b * b)
+
+
+    def needs_three(a, b, c):
+        return torch.exp(a) + b + c
+
+
+    def returns_str(x):
+        return str(torch.exp(x))
+
+
+    class K:
+        @staticmethod
+        def method(x):
+            return torch.exp(x * x)
+    '''
+)
+
+
+def test_run_measures_float32_against_float64(tmp_path, capsys):
+    pytest.importorskip("torch")
+    pkg = tmp_path / "runpkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ops.py").write_text(RUN_SNIPPET)
+    _, spots, _ = scan.scan_tree(str(tmp_path))
+    results = {r.spot.function: r for r in scan.run_functions(str(tmp_path), spots)}
+    assert results["unguarded"].status == "ran" and results["unguarded"].at_scale > 1e5
+    assert results["unguarded"].worst > 1e6 and abs(results["unguarded"].at) < 1e-6
+    assert results["guarded"].status == "ran" and results["guarded"].at_scale < 100 and results["guarded"].worst < 100
+    assert results["cancels"].worst > 1e6 and results["cancels"].at_scale <= 2  # noise against noise, but tiny at scale
+    assert results["two_args"].status == "ran" and results["two_args"].worst <= 2
+    assert results["needs_three"].status == "needs 3 positional arguments"
+    assert results["returns_str"].status == "did not return a float array"
+    assert results["K.method"].status == "method or nested function"
+    text = scan.render_run(list(results.values()))
+    assert text.splitlines()[1].startswith("7 functions tried, 4 ran, 3 skipped") and "unguarded" in text.splitlines()[2]
+    from ulpwise.__main__ import main
+
+    report = tmp_path / "scan.md"
+    assert main(["scan", str(tmp_path), "--run", "--run-limit", "3", "--report", str(report)]) == 0
+    assert "| at scale | elementwise |" in report.read_text() and "3 functions tried" in report.read_text()

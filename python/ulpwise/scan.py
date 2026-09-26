@@ -6,11 +6,17 @@ the expressions below with the file, the line and the function. It does not impo
 code, so it works on a repository whose dependencies are not installed. The report is a reading
 list, not a verdict: every finding names the pattern, why it loses digits or overflows, and the
 usual replacement.
+
+``--run`` adds a dynamic half: the module level functions with the most elementary math are
+imported and called with the same grid in float32 and float64, and the float32 result is measured
+in ulps against the float64 one. That imports and runs the repository's code.
 """
 
 from __future__ import annotations
 
 import ast
+import importlib
+import inspect
 import math
 import os
 import re
@@ -406,6 +412,167 @@ def render(findings: Sequence[Finding], spots: Sequence[HotSpot], target: str, s
     return "\n".join(out) + "\n"
 
 
+@dataclass
+class RunResult:
+    spot: HotSpot
+    status: str  # "ran" or the reason it did not
+    worst: Optional[int] = None  # elementwise float32 ulps against the float64 result, None for a NaN mismatch
+    at_scale: Optional[float] = None  # largest absolute error in ulps of the largest output magnitude
+    at: Optional[float] = None  # the input where the elementwise worst happened, when outputs map to inputs
+    backend: str = ""
+
+
+def _compare(out32: Sequence[float], ref32: Sequence[float]) -> Tuple[Optional[int], int, Optional[float]]:
+    """Elementwise worst ulp distance with its index, and the largest absolute error measured in ulps
+    of the largest finite reference value. The second number is the one to read for outputs that
+    contain mathematically zero entries (rotation matrices, differences): there the elementwise
+    count compares rounding noise with rounding noise and says nothing."""
+    import ulpwise
+
+    worst, i = ulpwise.max_ulp(out32, ref32, "f32")
+    pairs = [(x, y) for x, y in zip(out32, ref32) if math.isfinite(x) and math.isfinite(y)]
+    for x, y in zip(out32, ref32):
+        if math.isfinite(x) != math.isfinite(y) or (not math.isfinite(x) and x != y and not (x != x and y != y)):
+            return worst, i, None  # finite on one side only, or different infinities: no scale to speak of
+    scale = max((abs(y) for _, y in pairs), default=0.0)
+    err = max((abs(x - y) for x, y in pairs), default=0.0)
+    if scale == 0.0:
+        return worst, i, 0.0 if err == 0.0 else math.inf
+    return worst, i, err / ulpwise.spacing(scale, "f32")
+
+
+def _module_name(rel_path: str) -> str:
+    parts = rel_path[:-3].split(os.sep)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    while len(parts) > 1 and parts[0] in ("src", "python", "lib"):
+        parts = parts[1:]
+    return ".".join(parts)
+
+
+def _grid():
+    """Both signs of a log grid from 1e-8 to 1e3 plus zero: small angles, moderate values and the
+    start of overflow territory, 91 points in float64 as Python floats."""
+    mags = [10.0 ** (-8 + 11 * i / 44) for i in range(45)]
+    return [-m for m in reversed(mags)] + [0.0] + mags
+
+
+def _call(fn, n_args: int, values: Sequence[float], backend: str):
+    if backend == "torch":
+        import torch
+
+        x32 = torch.tensor(values, dtype=torch.float32)
+        x64 = x32.to(torch.float64)
+        out32, out64 = fn(*[x32] * n_args), fn(*[x64] * n_args)
+        ok = torch.is_tensor(out32) and torch.is_tensor(out64) and out32.is_floating_point() and out32.shape == out64.shape
+        if not ok:
+            return None
+        return out32.detach().reshape(-1).tolist(), out64.detach().to(torch.float32).reshape(-1).tolist()
+    import numpy as np
+
+    x32 = np.asarray(values, dtype=np.float32)
+    x64 = x32.astype(np.float64)
+    out32, out64 = fn(*[x32] * n_args), fn(*[x64] * n_args)
+    out32, out64 = np.asarray(out32), np.asarray(out64)
+    if out32.dtype != np.float32 or out32.shape != out64.shape or out64.dtype.kind != "f":
+        return None
+    return out32.reshape(-1).tolist(), out64.astype(np.float32).reshape(-1).tolist()
+
+
+def run_functions(root: str, spots: Sequence[HotSpot], limit: int = 50) -> List[RunResult]:
+    """Import the module level functions among ``spots``, call each with the same float32 and
+    float64 grid for every required argument (torch first, then numpy) and measure the float32
+    result against the float64 one rounded to float32, in float32 ulps.
+
+    This imports and runs the repository's code. Anything that fails to import, needs other
+    arguments or returns something that is not a float array is reported with the reason, not
+    guessed at.
+    """
+    for base in (root, os.path.join(root, "src"), os.path.join(root, "python")):
+        if os.path.isdir(base) and base not in sys.path:
+            sys.path.insert(0, base)
+    values = _grid()
+    results: List[RunResult] = []
+    for spot in list(spots)[:limit]:
+        if "." in spot.function:
+            results.append(RunResult(spot, "method or nested function"))
+            continue
+        try:
+            fn = getattr(importlib.import_module(_module_name(spot.path)), spot.function, None)
+        except BaseException as e:  # noqa: BLE001, repository code can raise anything on import
+            results.append(RunResult(spot, f"import failed: {type(e).__name__}"))
+            continue
+        if not callable(fn):
+            results.append(RunResult(spot, "not importable by name"))
+            continue
+        try:
+            params = list(inspect.signature(fn).parameters.values())
+        except (TypeError, ValueError):
+            results.append(RunResult(spot, "no signature"))
+            continue
+        required = [
+            p for p in params
+            if p.default is p.empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if not required or len(required) > 2:
+            results.append(RunResult(spot, f"needs {len(required)} positional arguments"))
+            continue
+        outcome, reasons = None, []
+        for backend in ("torch", "numpy"):
+            try:
+                outcome = _call(fn, len(required), values, backend)
+            except BaseException as e:  # noqa: BLE001
+                reasons.append(f"call failed: {type(e).__name__}")
+                continue
+            if outcome is not None:
+                break
+            reasons.insert(0, "did not return a float array")
+        if outcome is None:
+            results.append(RunResult(spot, reasons[0]))
+            continue
+        out32, ref32 = outcome
+        worst, i, at_scale = _compare(out32, ref32)
+        at = values[i] if len(out32) == len(values) else None
+        results.append(RunResult(spot, "ran", worst, at_scale, at, backend))
+    return results
+
+
+def render_run(results: Sequence[RunResult], markdown: bool = False) -> str:
+    def key(r: RunResult):
+        scale = -1.0 if r.at_scale is None else r.at_scale
+        return (-scale, -(r.worst if r.worst is not None else 2**40))
+
+    ran = sorted((r for r in results if r.status == "ran"), key=key)
+    skipped = [r for r in results if r.status != "ran"]
+    title = "float32 against float64, same function, log grid 1e-8 to 1e3 both signs and zero"
+    out = [f"## {title}" if markdown else f"{title}:"]
+    out.append(
+        f"{len(results)} functions tried, {len(ran)} ran, {len(skipped)} skipped. "
+        "'at scale' is the largest absolute error in ulps of the largest output, the number to read when the output "
+        "has entries that should be zero; 'elementwise' is the worst per element ulp distance and its input."
+    )
+    if markdown:
+        out.append("")
+        out.append("| at scale | elementwise | at | function | backend |")
+        out.append("|---:|---:|---:|---|---|")
+    for r in ran:
+        scale = "NaN/inf" if r.at_scale is None else f"{r.at_scale:.3g}"
+        ulps = "NaN mismatch" if r.worst is None else str(r.worst)
+        at = "" if r.at is None else f"{r.at:.3g}"
+        loc = f"{r.spot.path}:{r.spot.line} {r.spot.function}"
+        if markdown:
+            out.append(f"| {scale} | {ulps} | {at} | `{loc}` | {r.backend} |")
+        else:
+            out.append(f"  {scale:>10} {ulps:>12} {at:>10}  {loc}  [{r.backend}]")
+    if skipped:
+        reasons = {}
+        for r in skipped:
+            reasons[r.status] = reasons.get(r.status, 0) + 1
+        out.append("")
+        out.append("skipped: " + ", ".join(f"{k} x{v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])))
+    return "\n".join(out) + "\n"
+
+
 def main(args) -> int:
     try:
         root, sha = checkout(args.target, args.workdir)
@@ -421,6 +588,8 @@ def main(args) -> int:
             return 2
         findings = [f for f in findings if f.rule in wanted]
     text = render(findings, spots, args.target, sha, nfiles, args.top, markdown=bool(args.report))
+    if getattr(args, "run", False):
+        text += "\n" + render_run(run_functions(root, spots, args.run_limit), markdown=bool(args.report))
     if args.report:
         with open(args.report, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)

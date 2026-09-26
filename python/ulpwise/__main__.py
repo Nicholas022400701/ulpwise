@@ -62,6 +62,11 @@ def main(argv=None):
     n.add_argument("--include-tests", action="store_true", help="also scan test files and directories")
     n.add_argument("--fail-on", choices=["high", "medium", "info"], default=None, help="exit 1 when a finding of this severity or worse exists")
     n.add_argument("--workdir", default=None, help="where to clone (default: a temporary directory)")
+    n.add_argument(
+        "--run", action="store_true",
+        help="import the math-heavy functions and compare float32 with float64 on a grid (runs the repository's code)",
+    )
+    n.add_argument("--run-limit", type=int, default=50, help="how many functions --run tries, from the top of the list")
 
     args = parser.parse_args(argv)
     if args.cmd == "knife":
