@@ -177,10 +177,14 @@ the dtype default tolerance and under the op's `OpInfo` override, read from `op_
 (torch 2.14.0+cpu, numpy 2.2.6, scipy 1.18.1, jax 0.11.2, Linux x86_64 AVX512). The short version:
 
 - torch's `bessel_j0/j1/y0/y1` and `airy_ai` in float64 are off by 2.6e9 to 3.9e12 ulps and the
-  `precisionOverride({torch.float64: 1e-05})` on their tests hides every failing input.
+  `precisionOverride({torch.float64: 1e-05})` on their tests hides every failing input
+  (pytorch #198583).
 - torch's `polygamma(1, x)` in float64 keeps about 9 digits (4.0e6 ulps, 46 percent of inputs
   beyond 10 ulps) and passes the default float64 tolerance, which at `rtol = atol = 1e-7` tolerates
-  about 4.5e8 ulps.
+  about 4.5e8 ulps; in float32 it loses every digit for large negative `x` (pytorch #198663).
+- torch's `erfcx` for negative `x` is off by up to `x*x/2` ulps, 44 in float32 at `x = -8.44` and
+  157 in float64 at `x = -23.25`, and scipy's float64 `erfcx` returns the same wrong values
+  (pytorch #198664).
 - for 12 of 61 torch functions the AVX512 kernel and the scalar tail return different floats for
   the same input, up to 246 of 619 inputs for `mish`.
 - jax on CPU flushes subnormals to zero, its float64 `erfinv` loses 5 digits near the ends of the
