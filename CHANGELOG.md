@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-09-26)
 
 - `ulpwise survey` (`ulpwise.survey`): accuracy survey of 61 elementary and special functions of
   torch, numpy, scipy and jax against a 200 bit mpmath reference, in ulps of the dtype, with the
