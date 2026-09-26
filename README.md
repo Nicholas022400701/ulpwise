@@ -173,7 +173,7 @@ finite mismatches and the worst input. For torch it also reports how many inputs
 kernel and the scalar tail disagree on, and how many inputs would fail torch's reference test under
 the dtype default tolerance and under the op's `OpInfo` override, read from `op_db`.
 
-[`studies/accuracy-survey-2026-09`](studies/accuracy-survey-2026-09/README.md) is the first run
+[`studies/accuracy-survey-2026-09`](https://github.com/Nicholas022400701/ulpwise/blob/main/studies/accuracy-survey-2026-09/README.md) is the first run
 (torch 2.14.0+cpu, numpy 2.2.6, scipy 1.18.1, jax 0.11.2, Linux x86_64 AVX512). The short version:
 
 - torch's `bessel_j0/j1/y0/y1` and `airy_ai` in float64 are off by 2.6e9 to 3.9e12 ulps and the
@@ -225,8 +225,8 @@ those pull requests carries the same disclosure.
 
 Licensed under either of
 
-- the MIT license ([LICENSE-MIT](LICENSE-MIT)), or
-- the Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE)),
+- the MIT license ([LICENSE-MIT](https://github.com/Nicholas022400701/ulpwise/blob/main/LICENSE-MIT)), or
+- the Apache License, Version 2.0 ([LICENSE-APACHE](https://github.com/Nicholas022400701/ulpwise/blob/main/LICENSE-APACHE)),
 
 at your option. "At your option" means that whoever uses or redistributes this code picks
 whichever of the two licenses they want to comply with. Nobody has to ask anyone. Unless you say
