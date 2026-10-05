@@ -7,6 +7,7 @@ is a failure too: a release fixed the case and ``fixed_in_release`` in ``cases.j
 """
 
 import os
+import pathlib
 import re
 import sys
 
@@ -78,3 +79,18 @@ def test_corpus_case_declares_its_imports(case):
     imported = set(re.findall(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", case["repro"], re.M))
     assert imported - stdlib <= set(case["requires"]), case["id"]
     assert case["requires"][-1] != "numpy"  # the last entry is the package the bug lived in
+
+
+def test_readme_table_lists_every_case():
+    """The corpus table in README.md has one row per fix, with the merge date from `cases.json`."""
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README.md is not part of this checkout")
+    text = readme.read_text(encoding="utf-8")
+    table = text[text.index("| case | kind | merged |") :].split("\n\n", 1)[0].splitlines()[2:]
+    rows = {}
+    for line in table:
+        case_cell, _kind, merged = (cell.strip() for cell in line.strip().strip("|").split("|"))
+        rows[int(re.search(r"#(\d+)", case_cell).group(1))] = merged  # the first number is the PR, or the issue
+    expected = {case["pr"] or case["issue"]: case["merged_at"][:10] if case["pr"] else "open" for case in CASES}
+    assert rows == expected

@@ -195,8 +195,9 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet. Every case
 is an expected failure until the installed release contains the fix (`fixed_in_release` in
-`cases.json`; the two kornia fixes above are merged but not released yet), and the `max_ulp` check
-type measures the digits directly. The ultralytics dataset and label cases build their one-image
+`cases.json`; the timm and ultralytics fixes above are released, the kornia, pytorch/rl, peft and
+pytorch ones are merged but not in a release yet), and the `max_ulp` check type measures the digits
+directly. The ultralytics dataset and label cases build their one-image
 dataset in a temporary directory and need no weights; two more ultralytics fixes (#26240, #26246) are not in
 the corpus yet because their repros need model weights or the COCO evaluator.
 

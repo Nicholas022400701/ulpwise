@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The README said that two kornia fixes in the corpus were merged but not released; the corpus has 31
+  kornia cases now, and the pytorch/rl, peft and pytorch (#198006) fixes are in the same state (kornia
+  0.8.3 and 0.9.0rc1, torchrl 0.14.0, peft 0.21.2 and torch 2.14.1 predate them or cherry-pick other
+  changes), while the timm and ultralytics fixes are released. The sentence says so now, and
+  `tests/test_corpus.py` checks that the README table has one row per case with the merge date from
+  `cases.json`, so a case added without its row, or a row with a stale date, fails the suite.
 - `tests/test_survey.py` checks every reference of the survey registry against the libraries it measures:
   each entry is surveyed on a 24 point float64 grid against torch, numpy and scipy and its median error must
   stay under 32 ulp, which a reference that is another function fails by fifteen orders of magnitude (torch's
