@@ -997,6 +997,28 @@
     "type": "equal"
    },
    "before_fix": "[1, 1] on ultralytics 8.4.163: the second triangle was dropped as a duplicate"
+  },
+  {
+   "id": "ultralytics-26357-pose-labels-for-a-detect-task",
+   "repo": "ultralytics/ultralytics",
+   "pr": 26357,
+   "merged_at": "2026-09-27T01:32:14Z",
+   "kind": "crash",
+   "title": "verify_image_label read a pose row as a polygon when the task was detect, and dropped the image as corrupt",
+   "symptom": "With keypoint=False a row of 5 + nkpt * ndim values went down the segment branch, so the box, the keypoint coordinates and the visibility flags were read as polygon points, the polygon's box was out of bounds and the image was dropped as corrupt; a box task now keeps the first five values of a pose row and drops the keypoints.",
+   "requires": [
+    "cv2",
+    "numpy",
+    "ultralytics"
+   ],
+   "fixed_in_release": "8.4.164",
+   "repro": "import logging\nimport tempfile\nfrom pathlib import Path\nimport cv2\nimport numpy as np\nfrom ultralytics.data.utils import verify_image_label\nlogging.getLogger(\"ultralytics\").setLevel(logging.ERROR)\nroot = Path(tempfile.mkdtemp())\ncv2.imwrite(str(root / \"0.jpg\"), np.zeros((32, 32, 3), np.uint8))\n(root / \"0.txt\").write_text(\"0 0.5 0.5 0.4 0.4 0.3 0.3 2 0.7 0.7 2\\n\")  # class, box, two keypoints as x y visibility\n# a detect task on a pose dataset: keypoint=False while the data yaml still says kpt_shape (2, 3)\n_, labels, _, _, _, _, _, _, nc, _ = verify_image_label((str(root / \"0.jpg\"), str(root / \"0.txt\"), \"\", False, 1, 2, 3, False))\nactual = [nc] + (np.asarray(labels).reshape(-1).tolist() if labels is not None else [])  # corrupt count, then the box row\nexpected = [0, 0.0, 0.5, 0.5, 0.4, 0.4]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-07,
+    "rtol": 0.0
+   },
+   "before_fix": "[1] on ultralytics 8.4.163: nc = 1 and no labels, \"ignoring corrupt image/label: non-normalized or out of bounds coordinates [1.15 1.15 ...]\""
   }
  ]
 }
