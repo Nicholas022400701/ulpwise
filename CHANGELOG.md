@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The release workflow's manual dry run (`workflow_dispatch` without `publish`) now ends in a
+  `collect` job that downloads the artifacts the way the publish job does and checks that there
+  are five wheels and one sdist, so a dry run covers the whole pipeline short of the upload. The
+  workflow actions moved to `actions/checkout@v7`, `setup-python@v7`, `upload-artifact@v7` and
+  `download-artifact@v8` (the first Dependabot pull requests), and `Cargo.lock` to pyo3 0.29.3.
 - Dependabot (`.github/dependabot.yml`) opens weekly pull requests for Cargo.lock and the
   workflow actions, so pyo3 patch releases land through CI-tested pull requests instead of a
   hand-run `cargo update`; Python dependencies stay unpinned on purpose.
