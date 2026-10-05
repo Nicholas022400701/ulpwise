@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `next_up`, `next_down`, `spacing`, `neighbours`, `binade_edges` and `all_floats` accept `f16` and `bf16` (and the
+  `float16`, `half`, `bfloat16`, `torch.float16`, `torch.bfloat16` aliases) like `ulp_distance` and `special` already
+  did; they raised `unsupported dtype` before. The 16 bit versions are pure Python on the bit patterns, with the
+  conventions of the Rust ones: the largest float steps to infinity, both zeros to the smallest subnormal, `spacing`
+  is the distance from `|x|` to the next float and stays finite at the largest float, `neighbours` returns finite
+  values only. A test walks every finite float16 and bfloat16 and checks the six functions against each other, against
+  numpy's float16 `nextafter` and `spacing` and against torch's bfloat16 `nextafter`.
 - `ulpwise scan` read the first positional argument of a method call as the value the method is applied
   to, so `log(exp(x).sum(-1))` was not a `logsumexp-by-hand` finding while `log(exp(x).sum())` and
   `log(exp(x).sum(dim=-1))` were. A method call whose first argument is a dimension (an integer, `None`

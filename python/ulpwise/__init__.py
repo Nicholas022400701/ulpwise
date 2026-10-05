@@ -2,7 +2,8 @@
 
 The heavy lifting (ordered float views, exact rounding oracles, knife-edge scans) is in the Rust
 extension ``ulpwise._core``. This module adds the array plumbing, the assertion helpers and the
-float16 / bfloat16 ulp distances, which are pure Python on top of the 16 bit patterns.
+float16 / bfloat16 ulp distances, edge values, spacing and neighbours, which are pure Python on
+top of the 16 bit patterns.
 """
 
 from __future__ import annotations
@@ -14,17 +15,17 @@ from typing import Any, Iterable, Optional, Sequence, Tuple
 
 from ._core import (  # noqa: F401
     UNARY_OPS,
-    all_floats,
-    binade_edges,
     knife_edges_raw,
     midpoint,
-    neighbours,
-    next_down,
-    next_up,
-    spacing,
     sqrt_cr,
 )
+from ._core import all_floats as _all_floats_core
+from ._core import binade_edges as _binade_edges_core
+from ._core import neighbours as _neighbours_core
+from ._core import next_down as _next_down_core
+from ._core import next_up as _next_up_core
 from ._core import ordered as _ordered_core
+from ._core import spacing as _spacing_core
 from ._core import special as _special_core
 from ._core import ulp_distance as _ulp_distance_core
 from ._core import ulp_distances as _ulp_distances_core
@@ -122,6 +123,70 @@ def _step16(x: float, dtype: str, n: int) -> float:
     return _from_bits16(-o | 0x8000 if o < 0 else o, dtype)
 
 
+def _dtype(dtype: str) -> Tuple[str, bool]:
+    """``dtype`` or one of its aliases as the ulpwise name, and whether it is a 16 bit dtype."""
+    name = _DTYPE_NAMES.get(dtype)
+    if name is None:
+        raise ValueError(f"unsupported dtype {dtype!r}: use 'f64', 'f32', 'f16' or 'bf16'")
+    return name, name in _HALF_DTYPES
+
+
+def _max16(dtype: str) -> float:
+    return 65504.0 if dtype == "f16" else 3.3895313892515355e38
+
+
+def _next_up16(x: float, dtype: str) -> float:
+    if x != x or x == math.inf:
+        return x
+    return _step16(x, dtype, 1)  # -inf steps to -max, max steps to inf, both zeros to the smallest subnormal
+
+
+def _next_down16(x: float, dtype: str) -> float:
+    if x != x or x == -math.inf:
+        return x
+    return _step16(x, dtype, -1)
+
+
+def _spacing16(x: float, dtype: str) -> float:
+    a = abs(_round16(x, dtype))
+    if a == math.inf or a != a:
+        return math.nan
+    if a == _max16(dtype):
+        return a - _step16(a, dtype, -1)
+    return _step16(a, dtype, 1) - a
+
+
+def _neighbours16(x: float, k: int, dtype: str) -> list:
+    r = _round16(x, dtype)
+    if r == math.inf or r == -math.inf or r != r:
+        return [r]
+    o = _ordered16(r, dtype)
+    out = []
+    for v in range(max(o - k, -0x7FFF), min(o + k, 0x7FFF) + 1):
+        f = _from_bits16(-v | 0x8000 if v < 0 else v, dtype)
+        if math.isfinite(f):
+            out.append(f)
+    return out
+
+
+def _binade_edges16(min_exp: int, max_exp: int, dtype: str) -> list:
+    emin, emax = (-14, 15) if dtype == "f16" else (-126, 127)
+    out = []
+    for e in range(max(min_exp, emin), min(max_exp, emax) + 1):
+        p = 2.0**e
+        out.extend([_step16(p, dtype, -1), p])
+    return out
+
+
+def _all_floats16(lo: float, hi: float, dtype: str, limit: int) -> list:
+    if lo != lo or hi != hi or lo > hi:
+        return []
+    a, b = _ordered16(lo, dtype), _ordered16(hi, dtype)
+    if b - a + 1 > limit:
+        raise ValueError(f"more than {limit} floats in [{lo}, {hi}], raise limit or narrow the range")
+    return [_from_bits16(-v | 0x8000 if v < 0 else v, dtype) for v in range(a, b + 1)]
+
+
 def _special16(dtype: str) -> list:
     """The 29 named edge values of float16 (p = 11, emin = -14, emax = 15) or bfloat16 (p = 8,
     emin = -126, emax = 127), the same names and meanings as the Rust ``special`` for f32 and f64."""
@@ -179,6 +244,48 @@ def special(dtype: str = "f32") -> list:
     if dtype in _HALF_DTYPES:
         return _special16(dtype)
     return _special_core(dtype)
+
+
+def next_up(x: float, dtype: str = "f64") -> float:
+    """The float of the dtype just above ``x`` (``x`` is rounded to the dtype first); ``f64``, ``f32``,
+    ``f16`` or ``bf16``. NaN stays NaN, the largest float steps to infinity, both zeros to the smallest
+    subnormal."""
+    dtype, half = _dtype(dtype)
+    return _next_up16(x, dtype) if half else _next_up_core(x, dtype)
+
+
+def next_down(x: float, dtype: str = "f64") -> float:
+    """The float of the dtype just below ``x``; see :func:`next_up`."""
+    dtype, half = _dtype(dtype)
+    return _next_down16(x, dtype) if half else _next_down_core(x, dtype)
+
+
+def spacing(x: float, dtype: str = "f64") -> float:
+    """Spacing between ``|x|`` and the next larger float of the dtype (numpy's ``spacing``), NaN for a
+    non finite ``x``; ``f64``, ``f32``, ``f16`` or ``bf16``."""
+    dtype, half = _dtype(dtype)
+    return _spacing16(x, dtype) if half else _spacing_core(x, dtype)
+
+
+def neighbours(x: float, k: int = 1, dtype: str = "f64") -> list:
+    """The ``k`` floats of the dtype below ``x``, ``x`` itself and the ``k`` above it, finite only and
+    ascending; ``f64``, ``f32``, ``f16`` or ``bf16``."""
+    dtype, half = _dtype(dtype)
+    return _neighbours16(x, k, dtype) if half else _neighbours_core(x, k, dtype)
+
+
+def binade_edges(min_exp: int, max_exp: int, dtype: str = "f64") -> list:
+    """For every exponent ``e`` in ``[min_exp, max_exp]`` within the normal range of the dtype: the float
+    just below ``2 ** e`` and ``2 ** e`` itself, where the ulp doubles; ``f64``, ``f32``, ``f16`` or ``bf16``."""
+    dtype, half = _dtype(dtype)
+    return _binade_edges16(min_exp, max_exp, dtype) if half else _binade_edges_core(min_exp, max_exp, dtype)
+
+
+def all_floats(lo: float, hi: float, dtype: str = "f32", limit: int = 1_000_000) -> list:
+    """Every float of the dtype in ``[lo, hi]`` ascending (``-0.0`` is skipped, NaN bounds give nothing);
+    raises ValueError past ``limit`` values; ``f64``, ``f32``, ``f16`` or ``bf16``."""
+    dtype, half = _dtype(dtype)
+    return _all_floats16(lo, hi, dtype, limit) if half else _all_floats_core(lo, hi, dtype, limit)
 
 
 def ordered(x: float, dtype: str = "f64") -> int:

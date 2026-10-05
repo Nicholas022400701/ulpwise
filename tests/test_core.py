@@ -227,6 +227,70 @@ def test_neighbours_spacing_and_binades():
     assert ulpwise.ordered(-0.0) == 0 and ulpwise.ordered(1.0, "f32") == 0x3F800000
 
 
+def test_half_neighbours_walk_every_float16_and_bfloat16():
+    """next_up, next_down, spacing, neighbours, binade_edges and all_floats in the 16 bit dtypes agree with
+    numpy's float16, with torch's bfloat16 and with each other over every finite value of each dtype."""
+    for x in [0.0, -0.0, 2 ** -24, 2 ** -14, 0.1, 1.0, 1.5, 1000.0, 65504.0, -1.0, -65504.0, 3 * 2 ** -25]:
+        h = np.float16(x)
+        with np.errstate(over="ignore"):  # numpy warns when nextafter steps from the largest float to infinity
+            up, down = float(np.nextafter(h, np.float16(np.inf))), float(np.nextafter(h, np.float16(-np.inf)))
+        assert ulpwise.next_up(x, "f16") == up and ulpwise.next_down(x, "f16") == down, x
+        assert ulpwise.spacing(x, "f16") == ulpwise.spacing(-x, "f16") > 0, x
+        if 0 <= x < 65504.0:  # numpy's spacing is signed for negative x and overflows to inf at the largest float
+            assert ulpwise.spacing(x, "f16") == float(np.spacing(h)), x
+    assert ulpwise.spacing(65504.0, "f16") == 32.0 and ulpwise.spacing(0.0, "f16") == 2 ** -24
+    assert ulpwise.spacing(1.0, "bf16") == 2 ** -7 and ulpwise.spacing(2 ** -126, "bf16") == 2 ** -133
+    assert ulpwise.spacing(0.0, "bf16") == 2 ** -133 and ulpwise.spacing(1 + 2 ** -8, "bf16") == 2 ** -7  # rounded first
+    assert ulpwise.next_up(1.0, "bf16") == 1 + 2 ** -7 and ulpwise.next_down(1.0, "bf16") == 1 - 2 ** -8
+    assert ulpwise.next_up(-0.0, "bf16") == 2 ** -133 and ulpwise.next_down(0.0, "bf16") == -(2 ** -133)
+    for dtype, fmax, p in (("f16", 65504.0, 11), ("bf16", 3.3895313892515355e38, 8)):
+        inf, nan = math.inf, math.nan
+        assert ulpwise.next_up(fmax, dtype) == inf and ulpwise.next_down(-fmax, dtype) == -inf
+        assert ulpwise.next_up(-inf, dtype) == -fmax and ulpwise.next_down(inf, dtype) == fmax
+        assert ulpwise.next_up(inf, dtype) == inf and ulpwise.next_down(-inf, dtype) == -inf
+        assert math.isnan(ulpwise.next_up(nan, dtype)) and math.isnan(ulpwise.next_down(nan, dtype))
+        assert math.isnan(ulpwise.spacing(inf, dtype)) and math.isnan(ulpwise.spacing(nan, dtype))
+        assert ulpwise.neighbours(inf, 3, dtype) == [inf] and ulpwise.neighbours(0.0, 1, dtype) == [-ulpwise.special(dtype)[2][1], 0.0, ulpwise.special(dtype)[2][1]]
+        xs = ulpwise.all_floats(-fmax, fmax, dtype, limit=70000)
+        assert len(xs) == 2 ** 16 - 2 * 2 ** (p - 1) - 1  # every finite bit pattern except -0.0
+        assert xs == sorted(xs) and xs[0] == -fmax and xs[-1] == fmax
+        for a, b in zip(xs, xs[1:]):
+            assert ulpwise.next_up(a, dtype) == b and ulpwise.next_down(b, dtype) == a, (dtype, a, b)
+            assert ulpwise.ulp_distance(a, b, dtype) == 1
+            if a >= 0:
+                assert ulpwise.spacing(a, dtype) == b - a, (dtype, a, b)
+        assert ulpwise.spacing(fmax, dtype) == fmax - xs[-2]
+        assert ulpwise.neighbours(fmax, 3, dtype) == xs[-4:] and ulpwise.neighbours(-fmax, 3, dtype) == xs[:4]
+        assert ulpwise.neighbours(fmax, 2000, dtype) == xs[-2001:]  # past the last bit pattern, still finite only
+        assert ulpwise.neighbours(-fmax, 2000, dtype) == xs[:2001]
+        with pytest.raises(ValueError, match="more than 100 floats"):
+            ulpwise.all_floats(0.0, 1.0, dtype, limit=100)
+        assert ulpwise.all_floats(-fmax, fmax, dtype, limit=len(xs)) == xs  # exactly limit floats is allowed
+        with pytest.raises(ValueError, match=f"more than {len(xs) - 1} floats"):
+            ulpwise.all_floats(-fmax, fmax, dtype, limit=len(xs) - 1)
+        assert ulpwise.all_floats(1.0, 0.0, dtype) == [] and ulpwise.all_floats(math.nan, 1.0, dtype) == []
+    assert ulpwise.neighbours(1.0, 2, "f16") == [1 - 2 ** -10, 1 - 2 ** -11, 1.0, 1 + 2 ** -10, 1 + 2 ** -9]
+    assert ulpwise.neighbours(1.0, 1, "bf16") == [1 - 2 ** -8, 1.0, 1 + 2 ** -7]
+    assert ulpwise.binade_edges(-1, 0, "f16") == [0.5 - 2 ** -12, 0.5, 1 - 2 ** -11, 1.0]
+    assert ulpwise.binade_edges(15, 99, "f16") == [2 ** 15 - 2 ** 4, 2 ** 15]  # clipped to the normal exponents
+    assert ulpwise.binade_edges(-200, -126, "bf16") == [2 ** -126 - 2 ** -133, 2 ** -126]
+    assert ulpwise.all_floats(1.0, 1 + 2 ** -6, "bf16") == [1.0, 1 + 2 ** -7, 1 + 2 ** -6]
+    assert ulpwise.all_floats(-(2 ** -24), 2 ** -24, "f16") == [-(2 ** -24), 0.0, 2 ** -24]
+    assert ulpwise.spacing(1.0, "half") == 2 ** -10 and ulpwise.next_up(1.0, "torch.bfloat16") == 1 + 2 ** -7
+    assert ulpwise.spacing(1.0, "float32") == 2 ** -23 and ulpwise.next_up(1.0, "double") == 1 + 2 ** -52
+    with pytest.raises(ValueError, match="use 'f64', 'f32', 'f16' or 'bf16'"):
+        ulpwise.spacing(1.0, "f8")
+
+
+def test_bfloat16_neighbours_agree_with_torch_nextafter():
+    torch = pytest.importorskip("torch")
+    bf16 = torch.bfloat16
+    for x in [0.0, 2 ** -133, 2 ** -126, 0.1, 1.0, 3.0, 1e30, 3.3895313892515355e38, -1.0, -7.5]:
+        t = torch.tensor(x, dtype=bf16)
+        assert ulpwise.next_up(x, "bf16") == torch.nextafter(t, torch.tensor(math.inf, dtype=bf16)).item(), x
+        assert ulpwise.next_down(x, "bf16") == torch.nextafter(t, torch.tensor(-math.inf, dtype=bf16)).item(), x
+
+
 def test_unary_reference_and_scan_warning():
     for op in ulpwise.UNARY_OPS:
         rep = ulpwise.midpoint(op, 0.7, "f32")

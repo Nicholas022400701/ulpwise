@@ -95,6 +95,11 @@ ulpwise.assert_max_ulp(torch_out, reference, max_ulp_=2)               # floats,
 dict(ulpwise.special("f32"))["square_underflows_to_zero"]              # 2.6469779601696886e-23, the largest x with x * x == 0
 dict(ulpwise.special("bf16"))["square_overflows"]                      # 1.8446744073709552e+19, 2 ** 64
 
+# the floats around a value in any of the four dtypes
+ulpwise.next_up(1.0, "bf16")                                           # 1.0078125
+ulpwise.spacing(65504.0, "f16")                                        # 32.0, the ulp of the largest float16
+ulpwise.neighbours(1.0, 2, "f16")                                      # [0.99902, 0.99951, 1.0, 1.00098, 1.00195]
+
 # exact placement of a result relative to its rounding midpoint
 ulpwise.midpoint("sqrt", 0.8528626561164856, "f32")   # (0.9235056042671204, 0.000377, True, False)
 ulpwise.midpoint("div", 1.0, "f64", 3.0)              # (0.3333333333333333, 0.1666..., True, False)
@@ -319,7 +324,7 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
   docstring and the checks for the shapes, and an mpmath reference for the scalar functions.
 - Mutation scoring for numerical tests: single token mutants of the code under test (`abs`, a
   dropped `sqrt`, `/ 4` for `/ 16`) run against the test suite, reporting which survive.
-- `float16` and `bfloat16` `spacing`, `next_up`, knife edges and exact oracles (ulp distances and edge values are done).
+- `float16` and `bfloat16` knife edges and exact oracles (ulp distances, edge values, `spacing` and the neighbour functions are done).
 - Exact references for transcendental functions in Rust (correctly rounded `exp`, `log`, ...) so
   the `f64` knife-edge scans do not need mpmath.
 - Survey backends for CUDA and MPS, and `float16` / `bfloat16` rows.
