@@ -134,7 +134,13 @@ known to contain the fix, so the run tells you which bugs are present in your en
 `present`, `fixed` or `skipped`; `ulpwise corpus --repo pytorch --fail-if-present` is the CI gate
 form. `ULPWISE_CORPUS_STRICT=1 pytest tests/test_corpus.py` also fails on an unexpected pass, which
 is how the weekly scheduled run of this repository notices that a release fixed a case before
-`fixed_in_release` says so.
+`fixed_in_release` says so. To run the corpus against an older release without touching your
+environment, side-install it and put it first on the path:
+
+```sh
+pip install --no-deps --target /tmp/kornia-0.8.3 kornia==0.8.3
+PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 19 present, 0 fixed on kornia 0.8.3
+```
 
 | case | kind | merged |
 |---|---|---|
