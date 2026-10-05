@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-05)
 
 - `ulpwise survey` takes `f16` and `bf16` in `--dtypes` (the default stays `f32,f64`): torch and jax get half
   precision rows, measured in float16 or bfloat16 ulps against the same mpmath reference; numpy has no
