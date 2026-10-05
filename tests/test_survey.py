@@ -22,6 +22,59 @@ def test_grid_is_sorted_unique_finite_and_in_dtype():
     assert tiny in xs
 
 
+@pytest.mark.parametrize("dtype", ["bf16", "f16"])
+@pytest.mark.parametrize("kind", ["log", "symlog", "lin", "unit", "unitsym", "ge1"])
+def test_grid_half_dtypes_hold_representable_values_and_their_edges(dtype, kind):
+    import ulpwise
+
+    domain = {
+        "log": ("log", 1e-300, 1e300),
+        "symlog": ("symlog", 1e-300, 1e300),
+        "lin": ("lin", -4, 4),
+        "unit": ("unit",),
+        "unitsym": ("unitsym",),
+        "ge1": ("ge1", 1e300),
+    }[kind]
+    xs = survey.grid(domain, dtype, 64)
+    assert xs.dtype == survey.DTYPES[dtype]  # bfloat16 values live in a float32 array
+    assert np.all(np.isfinite(xs))
+    assert np.all(np.diff(xs) > 0)
+    for x in xs.tolist():  # every point is a float of the dtype, not just of the array's dtype
+        assert ulpwise.next_up(ulpwise.next_down(x, dtype), dtype) == x, x
+    edges = [v for _, v in ulpwise.special(dtype) if math.isfinite(v) and xs[0] <= v <= xs[-1]]
+    assert edges and all(v in xs for v in edges)
+    below = ulpwise.next_down(1.0, dtype)
+    if kind == "unit":  # open interval: the grid used to reach 1.0 in the half dtypes, 1 - 1e-4 rounds to 1 in
+        assert 0 < xs[0] < 1e-3 and xs[-1] == below  # float16 and 1 - 1e-3 in bfloat16
+    if kind == "unitsym":
+        assert xs[0] == -below and xs[-1] == below
+    if kind == "ge1":  # clipped to the largest float too: 1 + logspace up to 1e300 kept a handful of points
+        assert xs[0] == 1.0 and xs[-1] == survey._fmax(dtype) and len(xs) >= 60
+    if kind in ("log", "symlog"):  # clipped to the finite range of the dtype, so the points are not wasted
+        assert xs[-1] == survey._fmax(dtype) and len(xs) >= 60
+        assert xs[0] == (ulpwise.next_up(0.0, dtype) if kind == "log" else -survey._fmax(dtype))
+
+
+def test_grid_clips_a_wide_log_domain_to_the_range_of_the_dtype():
+    import ulpwise
+
+    for dtype, lo, hi in (("f16", 2**-24, 65504.0), ("bf16", 2**-133, 2**128 - 2**120), ("f32", 2**-149, 2**128 - 2**104)):
+        xs = survey.grid(("log", 1e-300, 1e300), dtype, 600)
+        assert float(xs[0]) == lo == ulpwise.next_up(0.0, dtype), dtype  # the smallest subnormal
+        assert float(xs[-1]) == hi == max(v for _, v in ulpwise.special(dtype) if math.isfinite(v)), dtype
+        assert len(xs) >= 570, (dtype, len(xs))  # the float16 grid had 32 points when the 1e-300 .. 1e300 points were spaced first
+    xs = survey.grid(("log", 1e-300, 1e300), "f64", 600)  # inside the float64 range, nothing to clip
+    assert float(xs[0]) == 1e-300 and float(xs[-1]) == 1e300 and len(xs) >= 600
+
+
+def test_fmax_matches_the_largest_edge_value():
+    import ulpwise
+
+    for dtype in survey.DTYPES:
+        assert survey._fmax(dtype) == max(v for _, v in ulpwise.special(dtype) if math.isfinite(v))
+    assert survey._fmax("f16") == 65504.0 and survey._fmax("bf16") == float(2**128 - 2**120)
+
+
 def test_ulp_error_is_half_for_a_correctly_rounded_result():
     mp.mp.prec = 200
     exact = mp.sqrt(mp.mpf(2))
@@ -38,6 +91,42 @@ def test_ulp_error_treats_non_finite_results():
     assert survey._ulp_error(1.0, None, "f64") == math.inf
     assert survey._ulp_error(math.inf, mp.mpf("inf"), "f64") == 0.0
     assert survey._ulp_error(math.inf, mp.mpf(1), "f64") == math.inf
+
+
+def test_ulp_error_in_the_half_dtypes():
+    mp.mp.prec = 200
+    one = mp.mpf(1)
+    assert survey._ulp_error(1 + 2**-7, one, "bf16") == 1.0  # the bfloat16 next to 1
+    assert survey._ulp_error(1 + 2**-10, one, "f16") == 1.0  # the float16 next to 1
+    assert survey._ulp_error(1 + 2**-10, one, "bf16") == 2**-3  # a float32 step is an eighth of a bfloat16 ulp
+    assert survey._ulp_error(0.0, mp.mpf(2) ** -25, "f16") == 0.5  # half the smallest subnormal, rounds to 0
+    assert survey._ulp_error(65504.0, mp.mpf(65504 + 16), "f16") == 0.5  # the spacing at the largest float16 is 32
+    assert survey._ulp_error(math.inf, mp.mpf(65520), "f16") == 0.0  # 65504 + 16 rounds to inf (ties to even)
+    assert survey._ulp_error(math.inf, mp.mpf(65519), "f16") == math.inf
+    bmax = mp.mpf(survey._fmax("bf16"))
+    assert survey._ulp_error(math.inf, bmax + mp.mpf(2) ** 119, "bf16") == 0.0  # half a bfloat16 ulp above the max
+    assert survey._ulp_error(math.inf, bmax + mp.mpf(2) ** 118, "bf16") == math.inf
+
+
+def test_ulp_error_at_the_largest_float_and_the_rounding_threshold_to_infinity():
+    # at the largest finite value numpy's spacing is inf, which made every finite result there a 0 ulp error, and
+    # the overflow threshold was fmax * (1 + eps / 2), about one ulp above fmax, half an ulp too high: an exact
+    # result between fmax + ulp/2 and fmax + ulp rounds to inf in the dtype, so a backend returning inf is right
+    import ulpwise
+
+    mp.mp.prec = 200
+    for dtype in ("f64", "f32", "f16", "bf16"):
+        fmax = mp.mpf(survey._fmax(dtype))
+        ulp = mp.mpf(ulpwise.spacing(float(fmax), dtype))
+        assert mp.isfinite(ulp) and ulp > 0
+        got = float(fmax)
+        assert abs(survey._ulp_error(got, fmax + ulp * mp.mpf("0.4"), dtype) - 0.4) < 1e-12, dtype
+        assert survey._ulp_error(got, fmax, dtype) == 0.0
+        assert survey._ulp_error(math.inf, fmax + ulp * mp.mpf("0.75"), dtype) == 0.0, dtype
+        assert survey._ulp_error(math.inf, fmax + ulp / 2, dtype) == 0.0, dtype
+        assert survey._ulp_error(math.inf, fmax + ulp * mp.mpf("0.25"), dtype) == math.inf, dtype
+        assert survey._ulp_error(-math.inf, -(fmax + ulp), dtype) == 0.0, dtype
+        assert survey._ulp_error(math.inf, -(fmax + ulp), dtype) == math.inf, dtype  # wrong sign of infinity
 
 
 def test_reference_formulas_keep_the_tails():
@@ -270,6 +359,90 @@ def test_survey_skips_a_backend_that_raises_or_returns_the_wrong_shape(monkeypat
     assert "scalar" not in log.getvalue()  # a wrong shape is dropped silently
 
 
+def _exp_entry():
+    return next(e for e in survey.REGISTRY if e.name == "exp")
+
+
+def test_backend_callable_half_dtypes():
+    entry = _exp_entry()
+    assert survey.backend_callable("numpy", entry, "bf16") is None  # numpy has no bfloat16
+    erf = next(e for e in survey.REGISTRY if e.name == "erf")  # exp has no scipy path, erf has scipy.special.erf
+    if _has("scipy"):
+        assert survey.backend_callable("scipy", erf, "f32") is not None
+    assert survey.backend_callable("scipy", erf, "f16") is None  # scipy.special computes float16 in float32
+    assert survey.backend_callable("scipy", erf, "bf16") is None
+    xs = np.array([0.5, 1.5], dtype=np.float16)
+    got = survey.backend_callable("numpy", entry, "f16")(xs)
+    assert got.dtype == np.float16 and np.allclose(got, np.exp(xs))
+    if _has("torch"):
+        import torch
+
+        got = survey.backend_callable("torch", entry, "f16")(xs)
+        assert got.dtype == np.float16 and np.array_equal(got, torch.exp(torch.tensor([0.5, 1.5], dtype=torch.float16)).numpy())
+        got = survey.backend_callable("torch", entry, "bf16")(np.array([0.5, 1.5], dtype=np.float32))
+        assert got.dtype == np.float32  # bfloat16 values returned in a float32 array
+        assert np.array_equal(got, torch.exp(torch.tensor([0.5, 1.5], dtype=torch.bfloat16)).float().numpy())
+
+
+def test_survey_rejects_an_unknown_dtype_before_doing_anything():
+    with pytest.raises(ValueError, match="unknown dtype 'f8': use f64, f32, f16 or bf16"):
+        survey.survey(backends=("numpy",), dtypes=("f64", "f8"), points=8, functions=["exp"])
+
+
+def test_survey_drops_a_backend_without_a_kernel_in_the_dtype_before_the_reference(monkeypatch):
+    import io
+
+    calls = []
+
+    def ref(x):
+        calls.append(x)
+        return mp.sqrt(x)
+
+    def picky(x):
+        if x.dtype == np.float16:
+            raise RuntimeError('"sqrt_cpu" not implemented for \'Half\'')
+        return np.sqrt(x)
+
+    monkeypatch.setattr(survey, "REGISTRY", [survey.Entry("picky", ref, ("log", 1e-3, 1e3), numpy=picky)])
+    log = io.StringIO()
+    results = survey.survey(backends=("numpy",), dtypes=("f16", "f32"), points=16, log=log)
+    assert [(r.dtype, r.backend) for r in results] == [("f32", "numpy")]
+    assert len(calls) == len(survey.grid(("log", 1e-3, 1e3), "f32", 16))  # no reference for the f16 grid
+    assert "picky numpy f16: error \"sqrt_cpu\" not implemented for 'Half'" in log.getvalue()
+    assert "picky numpy f32: error" not in log.getvalue()
+
+
+def test_survey_measures_exp_in_the_half_dtypes(monkeypatch):
+    import io
+
+    monkeypatch.setattr(survey, "REGISTRY", [_exp_entry()])
+    log = io.StringIO()
+    results = survey.survey(backends=("numpy", "torch", "scipy"), dtypes=("f16", "bf16"), points=48, log=log)
+    rows = {(r.backend, r.dtype): r for r in results}
+    expected = {("numpy", "f16")}  # no numpy bf16 row, no scipy half rows
+    if _has("torch"):
+        expected |= {("torch", "f16"), ("torch", "bf16")}
+    assert set(rows) == expected
+    for (backend, dtype), r in rows.items():
+        assert r.n == len(survey.grid(_exp_entry().domain, dtype, 48))
+        assert r.max_ulp <= 1.0, (backend, dtype, r)  # exp computed in float32 and rounded once: within an ulp
+        assert r.frac_gt1 == 0 and r.nonfinite_mismatch == 0  # inf at the overflow edge, 0 at the underflow edge
+        assert math.isfinite(r.worst_x) and math.isfinite(r.worst_got)
+        if backend == "torch":
+            assert r.default_tol_fail == 0 and r.op_tol_fail == 0
+            assert (r.op_rtol, r.op_atol) >= survey.DEFAULT_TOL[dtype]
+    assert "exp" in log.getvalue() and "scipy" not in log.getvalue()
+
+
+@pytest.mark.skipif(not _has("torch"), reason="torch is not installed")
+def test_default_tolerances_are_those_of_torch_testing():
+    import torch
+    from torch.testing._comparison import default_tolerances
+
+    for dtype, tdt in (("bf16", torch.bfloat16), ("f16", torch.float16), ("f32", torch.float32), ("f64", torch.float64)):
+        assert default_tolerances(tdt) == survey.DEFAULT_TOL[dtype], dtype
+
+
 def test_torch_opinfo_tolerance_defaults_without_an_op_and_never_tightens():
     assert survey.torch_opinfo_tolerance(None, "f32") == survey.DEFAULT_TOL["f32"]
     assert survey.torch_opinfo_tolerance("no_such_op_in_op_db", "f64") == survey.DEFAULT_TOL["f64"]
@@ -438,6 +611,19 @@ def test_write_markdown_pivots_backends_and_lists_tolerated_errors(tmp_path):
     assert any(line.startswith("- `exp` f64: 3 of 10 inputs fail the default tolerance, none fail the op's (rtol 1e-07, atol 1e-06); worst x = 1.5") for line in lines)
 
 
+def test_write_markdown_lists_the_half_dtypes_in_dtype_order(tmp_path):
+    results = [_result("exp", "numpy", d) for d in ("f64", "f16", "f32")] + [
+        _result("exp", "torch", "bf16", vec_scalar_mismatch=0, default_tol_fail=0, op_tol_fail=0, op_rtol=1.6e-2, op_atol=1e-5)
+    ]
+    path = tmp_path / "results.md"
+    survey.write_markdown(results, str(path), {})
+    lines = path.read_text(encoding="utf-8").splitlines()
+    rows = [line.split(" | ")[1] for line in lines if line.startswith("| exp |")]
+    assert rows == ["bf16", "f16", "f32", "f64"]  # the order of DTYPES, only the dtypes with a result
+    assert "| exp | bf16 | 3 (2) |  | 0 | 0 | 0 | (0.016, 1e-05) |" in lines
+    assert "| exp | f16 |  | 3 (2) |  |  |  |  |" in lines
+
+
 def test_write_markdown_without_tolerated_errors_has_no_override_section(tmp_path):
     path = tmp_path / "results.md"
     survey.write_markdown([_result("exp", "numpy", "f64")], str(path), {})
@@ -481,3 +667,15 @@ def test_cli_survey_subcommand_filters_the_registry(tmp_path):
     text = (out / "results.csv").read_text(encoding="utf-8")
     assert text.count("\n") == 2  # header plus the one sqrt row
     assert "sqrt,numpy,f64," in text
+
+
+def test_cli_survey_accepts_the_half_dtypes(tmp_path):
+    from ulpwise.__main__ import main
+
+    out = tmp_path / "survey"
+    code = main(["survey", "--functions", "exp", "--backends", "numpy", "--dtypes", "f16,bf16", "--points", "16", "--out", str(out)])
+    assert code == 0
+    text = (out / "results.csv").read_text(encoding="utf-8")
+    assert text.count("\n") == 2  # header plus the numpy f16 row, numpy has no bfloat16
+    assert "exp,numpy,f16," in text
+    assert "| exp | f16 |" in (out / "results.md").read_text(encoding="utf-8")

@@ -9,6 +9,11 @@ vectorized kernel agrees with the scalar tail.
 
 The reference is computed at the input the backend actually saw (the float of the dtype), so the
 numbers are the error of the implementation, not of the input rounding.
+
+The dtypes are ``f64``, ``f32``, ``f16`` and ``bf16``. torch and jax have rows in all four; numpy has
+no bfloat16 and scipy.special computes a float16 input in float32, so those two have no bf16 rows and
+scipy has no float16 rows either. A backend without a kernel for the function in a dtype (torch's
+Bessel functions in half precision, for example) is logged and skipped before the reference is paid for.
 """
 
 from __future__ import annotations
@@ -27,8 +32,27 @@ import numpy as np
 
 import ulpwise
 
-DTYPES = {"f32": np.float32, "f64": np.float64}
-DEFAULT_TOL = {"f32": (1.3e-6, 1e-5), "f64": (1e-7, 1e-7)}  # (rtol, atol) of torch.testing for the dtype
+# numpy dtype that holds the values of each survey dtype; bfloat16 has none, its values live in float32 arrays
+DTYPES = {"bf16": np.float32, "f16": np.float16, "f32": np.float32, "f64": np.float64}
+HALF = ("bf16", "f16")
+# (rtol, atol) of torch.testing for the dtype
+DEFAULT_TOL = {"bf16": (1.6e-2, 1e-5), "f16": (1e-3, 1e-5), "f32": (1.3e-6, 1e-5), "f64": (1e-7, 1e-7)}
+_UNIT_LO = {"bf16": -38, "f16": -4, "f32": -38, "f64": -300}  # log10 of the start of the (0, 1) grids, near the smallest normal
+# log10 of the distance to 1 the (0, 1) and [1, hi) grids start at: below half an ulp of 1 the points would round to 1
+_UNIT_EPS = {"bf16": -2.5, "f16": -3.5, "f32": -7, "f64": -16}
+
+
+def _round(xs: np.ndarray, dtype: str) -> np.ndarray:
+    """``xs`` (float64) rounded to nearest even in the dtype, as an array of ``DTYPES[dtype]``; overflow gives inf."""
+    if dtype == "bf16":
+        return np.array([ulpwise._round16(float(x), "bf16") for x in xs.tolist()], dtype=np.float32)
+    with np.errstate(over="ignore"):  # a domain wider than the dtype overflows to inf here and is dropped by grid()
+        return xs.astype(DTYPES[dtype])
+
+
+def _fmax(dtype: str) -> float:
+    """Largest finite value of the dtype."""
+    return 3.3895313892515355e38 if dtype == "bf16" else float(np.finfo(DTYPES[dtype]).max)
 
 
 @dataclass(frozen=True)
@@ -56,30 +80,29 @@ def grid(domain: Tuple, dtype: str, points: int) -> np.ndarray:
     kind = domain[0]
     npdt = DTYPES[dtype]
     half = max(points // 2, 8)
+    lo, eps = _UNIT_LO[dtype], _UNIT_EPS[dtype]
+    # a log spaced domain wider than the dtype is clipped to its finite range first, the points outside would only
+    # round to zero or overflow and be dropped below (a float16 grid over (1e-300, 1e300) kept 32 of 600 points)
+    smallest, fmax = ulpwise.next_up(0.0, dtype), _fmax(dtype)
     if kind == "log":  # (lo, hi) positive
-        xs = np.logspace(math.log10(domain[1]), math.log10(domain[2]), points)
+        xs = np.logspace(math.log10(max(domain[1], smallest)), math.log10(min(domain[2], fmax)), points)
     elif kind == "symlog":  # (lo, hi) both signs
-        pos = np.logspace(math.log10(domain[1]), math.log10(domain[2]), half)
+        pos = np.logspace(math.log10(max(domain[1], smallest)), math.log10(min(domain[2], fmax)), half)
         xs = np.concatenate([-pos[::-1], pos])
     elif kind == "lin":
         xs = np.linspace(domain[1], domain[2], points)
     elif kind == "unit":  # open interval (0, 1), dense at both ends
-        lo = -38 if dtype == "f32" else -300
-        eps = -7 if dtype == "f32" else -16
         xs = np.concatenate(
             [np.logspace(lo, -1, half), np.linspace(0.1, 0.9, half // 2), 1 - np.logspace(eps, -1, half)]
         )
     elif kind == "unitsym":  # open interval (-1, 1)
-        eps = -7 if dtype == "f32" else -16
         pos = np.concatenate([np.logspace(-8, math.log10(0.9), half), 1 - np.logspace(eps, -1, half // 2)])
         xs = np.concatenate([-pos[::-1], pos])
     elif kind == "ge1":  # [1, hi) as 1 + logspace
-        eps = -7 if dtype == "f32" else -16
-        xs = 1 + np.logspace(eps, math.log10(domain[1]), points)
+        xs = 1 + np.logspace(eps, math.log10(min(domain[1], fmax)), points)
     else:
         raise ValueError(f"unknown domain kind {kind!r}")
-    with np.errstate(over="ignore"):  # a domain wider than the dtype overflows to inf here and is dropped below
-        xs = xs.astype(npdt)
+    xs = _round(xs, dtype)
     lo, hi = float(xs.min()), float(xs.max())
     edges = [v for _, v in ulpwise.special(dtype) if lo <= v <= hi and math.isfinite(v)]
     xs = np.unique(np.concatenate([xs, np.asarray(edges, dtype=npdt)]).astype(npdt))
@@ -384,6 +407,12 @@ def _resolve(path: Any, root_name: str):
     return obj
 
 
+def _torch_dtype(dtype: str):
+    import torch  # noqa: PLC0415
+
+    return {"bf16": torch.bfloat16, "f16": torch.float16, "f32": torch.float32, "f64": torch.float64}[dtype]
+
+
 def backend_callable(backend: str, entry: Entry, dtype: str):
     """Return a numpy array -> numpy array callable for the backend, or None if unavailable."""
     try:
@@ -393,18 +422,19 @@ def backend_callable(backend: str, entry: Entry, dtype: str):
             fn = _resolve(entry.torch, "torch")
             if fn is None:
                 return None
-            tdt = {"f32": torch.float32, "f64": torch.float64}[dtype]
+            tdt = _torch_dtype(dtype)
 
             def run(x):
-                return fn(torch.from_numpy(np.ascontiguousarray(x)).to(tdt)).detach().cpu().numpy()
+                out = fn(torch.from_numpy(np.ascontiguousarray(x)).to(tdt)).detach().cpu()
+                return (out.to(torch.float32) if dtype == "bf16" else out).numpy()  # numpy has no bfloat16
 
             return run
         if backend == "numpy":
             fn = _resolve(entry.numpy, "numpy")
-            return (lambda x: np.asarray(fn(x))) if fn is not None else None
-        if backend == "scipy":
+            return (lambda x: np.asarray(fn(x))) if fn is not None and dtype != "bf16" else None
+        if backend == "scipy":  # scipy.special computes a float16 input in float32, so it has no half rows
             fn = _resolve(entry.scipy, "scipy.special")
-            return (lambda x: np.asarray(fn(x))) if fn is not None else None
+            return (lambda x: np.asarray(fn(x))) if fn is not None and dtype not in HALF else None
         if backend == "jax":
             import jax  # noqa: PLC0415
             import jax.numpy as jnp  # noqa: PLC0415
@@ -413,9 +443,10 @@ def backend_callable(backend: str, entry: Entry, dtype: str):
             fn = _resolve(entry.jax, "jax")
             if fn is None:
                 return None
+            jdt = {"bf16": jnp.bfloat16, "f16": jnp.float16, "f32": jnp.float32, "f64": jnp.float64}[dtype]
 
             def run(x):
-                return np.asarray(fn(jnp.asarray(x, dtype=DTYPES[dtype])))
+                return np.asarray(fn(jnp.asarray(x, dtype=jdt)), dtype=DTYPES[dtype])
 
             return run
     except Exception:  # noqa: BLE001
@@ -462,7 +493,7 @@ def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str, variant: Opti
     if imports is None:
         return rtol, atol
     torch, op_db, precisionOverride, toleranceOverride, DecorateInfo = imports
-    tdt = {"f32": torch.float32, "f64": torch.float64}[dtype]
+    tdt = _torch_dtype(dtype)
     ops = [op for op in op_db if op.name == opinfo_name]
     if variant is None:
         ops = [op for op in ops if not op.variant_test_name] or ops
@@ -497,8 +528,7 @@ def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str, variant: Opti
 def _ulp_error(got: float, ref, dtype: str):
     """Error of ``got`` in ulps of the dtype at ``ref`` (an mpf), or None when both are the same non finite."""
     mp = _mp()
-    npdt = DTYPES[dtype]
-    fmax = float(np.finfo(npdt).max)
+    fmax = _fmax(dtype)
     if ref is None:  # domain error: the backend should return nan
         return 0.0 if math.isnan(got) else math.inf
     if math.isnan(got):
@@ -506,11 +536,12 @@ def _ulp_error(got: float, ref, dtype: str):
     if mp.isinf(ref):
         return 0.0 if math.isinf(got) and (got > 0) == (ref > 0) else math.inf
     if math.isinf(got):
-        # an overflowing exact result rounds to inf in the dtype, that is not an error
-        return 0.0 if abs(ref) >= mp.mpf(fmax) * (1 + mp.mpf(float(np.finfo(npdt).eps)) / 2) and (got > 0) == (ref > 0) else math.inf
-    r = float(npdt(float(ref))) if abs(ref) < mp.mpf(fmax) else float(np.copysign(fmax, float(ref)))
-    spacing = float(np.spacing(npdt(abs(r))))
-    return float(abs(mp.mpf(float(got)) - ref) / mp.mpf(float(spacing)))
+        # an exact result at or past the rounding threshold to infinity, half an ulp above the largest finite value,
+        # rounds to inf in the dtype, that is not an error
+        threshold = mp.mpf(fmax) + mp.mpf(ulpwise.spacing(fmax, dtype)) / 2
+        return 0.0 if abs(ref) >= threshold and (got > 0) == (ref > 0) else math.inf
+    r = float(_round(np.array([float(ref)]), dtype)[0]) if abs(ref) < mp.mpf(fmax) else math.copysign(fmax, float(ref))
+    return float(abs(mp.mpf(float(got)) - ref) / mp.mpf(ulpwise.spacing(abs(r), dtype)))  # finite at the largest float
 
 
 @dataclass
@@ -537,6 +568,18 @@ class Result:
     seconds: float
 
 
+def _runs(fn, x: np.ndarray, entry: Entry, backend: str, dtype: str, log) -> bool:
+    """Whether the backend evaluates the function in this dtype at all, before the reference is paid for."""
+    try:
+        with np.errstate(all="ignore"):
+            fn(x)
+    except Exception as ex:  # noqa: BLE001
+        if log:
+            print(f"{entry.name} {backend} {dtype}: error {ex}", file=log)
+        return False
+    return True
+
+
 def survey(
     backends: Sequence[str] = ("torch", "numpy", "scipy", "jax"),
     dtypes: Sequence[str] = ("f32", "f64"),
@@ -546,6 +589,9 @@ def survey(
     log=None,
 ) -> List[Result]:
     """Run the survey and return one Result per (function, backend, dtype) that could be evaluated."""
+    for dtype in dtypes:
+        if dtype not in DTYPES:
+            raise ValueError(f"unknown dtype {dtype!r}: use f64, f32, f16 or bf16")
     mp = _mp()
     mp.mp.prec = prec
     if log and "torch" in backends:
@@ -564,7 +610,7 @@ def survey(
             npdt = DTYPES[dtype]
             xs = grid(entry.domain, dtype, points)
             fns = [(backend, backend_callable(backend, entry, dtype)) for backend in backends]
-            fns = [(backend, fn) for backend, fn in fns if fn is not None]
+            fns = [(backend, fn) for backend, fn in fns if fn is not None and _runs(fn, xs[:1], entry, backend, dtype, log)]
             if not fns:
                 continue  # no backend to compare, the reference would only cost time
             t0 = time.time()
@@ -676,8 +722,9 @@ def write_markdown(results: List[Result], path: str, versions: Dict[str, str]) -
     for r in results:
         if r.function not in functions:
             functions.append(r.function)
+    dtypes = [d for d in DTYPES if any(r.dtype == d for r in results)]
     for fn in functions:
-        for dtype in ("f32", "f64"):
+        for dtype in dtypes:
             row = [fn, dtype]
             any_row = False
             for b in backends:

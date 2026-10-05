@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- `ulpwise survey` takes `f16` and `bf16` in `--dtypes` (the default stays `f32,f64`): torch and jax get half
+  precision rows, measured in float16 or bfloat16 ulps against the same mpmath reference; numpy has no
+  bfloat16 and scipy.special computes a float16 input in float32, so those two have no `bf16` rows and scipy
+  has no `f16` rows. A backend without a kernel for a function in a dtype (torch's Bessel and Airy functions,
+  `erfcx`, `ndtri`, `log_ndtr` and `zeta` in half precision) is logged and skipped before the reference is
+  computed. The torch default tolerances of the two dtypes are `(1.6e-2, 1e-5)` and `(1e-3, 1e-5)`, as in
+  `torch.testing`. A log spaced domain wider than the dtype is now clipped to the dtype's finite range before
+  the points are spaced: the float16 grid of `sqrt` and `log` over `(1e-300, 1e300)` kept 32 of 600 points and
+  `acosh` 24, they have about 570 and 490 now; the float32 grids of the same functions go from about 100 points
+  to about 600, the float64 grids are unchanged. The `(0, 1)` and `(-1, 1)` grids of `ndtri`, `logit`, `asin`,
+  `acos`, `atanh` and `erfinv` stop at the float below 1 in half precision too, where `1 - 1e-4` and `1 - 1e-3`
+  rounded to 1. Two corrections to the ulp metric for every dtype: the threshold from which an exact result
+  counts as a correct overflow to infinity was `fmax * (1 + eps / 2)`, about one ulp above the largest finite
+  value, and is now `fmax + ulp / 2`, the rounding threshold; and the spacing at the largest finite value was
+  numpy's `inf`, which turned every finite result there into a 0 ulp error, it is `ulpwise.spacing` now.
+  An unknown dtype raises `ValueError` instead of a `KeyError` from the grid.
 - `next_up`, `next_down`, `spacing`, `neighbours`, `binade_edges` and `all_floats` accept `f16` and `bf16` (and the
   `float16`, `half`, `bfloat16`, `torch.float16`, `torch.bfloat16` aliases) like `ulp_distance` and `special` already
   did; they raised `unsupported dtype` before. The 16 bit versions are pure Python on the bit patterns, with the

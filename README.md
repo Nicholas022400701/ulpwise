@@ -275,18 +275,23 @@ the reading list is where that judgement happens.
 pip install 'ulpwise[survey]' torch scipy jax      # mpmath is the reference, the rest are backends
 ulpwise survey --out survey                        # results.csv and results.md, about 3 minutes
 ulpwise survey --functions bessel_j0,polygamma_1 --backends torch,scipy --dtypes f64 --points 2000
+ulpwise survey --functions erf,exp --backends torch --dtypes f16,bf16   # half precision rows
 ```
 
 For every function in `ulpwise.survey.REGISTRY` (exp, log, trig and hyperbolic functions, erf and
 friends, gamma family, torch.special Bessel and Airy functions, the activation functions), every
-dtype and every installed backend, the survey evaluates a log spaced grid over the function's domain
+dtype (`f64`, `f32`, `f16` and `bf16`; the default is `f32,f64`) and every installed backend, the
+survey evaluates a log spaced grid over the function's domain, clipped to the finite range of the dtype,
 plus the named edge values of the dtype, computes the exact value with mpmath at the rounded input,
 and reports max, p99 and median error in ulps, the fraction of inputs beyond 1 and 10 ulps, non
 finite mismatches and the worst input. For torch it also reports how many inputs the vectorized
 kernel and the scalar tail disagree on, and how many inputs would fail torch's reference test under
 the dtype default tolerance and under the op's `OpInfo` override, read from `op_db`. Reading `op_db` needs
 `expecttest`, a test-only dependency of torch that the `survey` extra installs; without it the survey logs
-one line and uses the default.
+one line and uses the default. torch and jax have `f16` and `bf16` rows; numpy has no bfloat16 and
+scipy.special computes a float16 input in float32, so neither has `bf16` rows and scipy has no `f16` rows.
+A backend without a kernel for a function in a dtype (torch's Bessel functions in half precision) is
+logged and skipped.
 
 [`studies/accuracy-survey-2026-09`](https://github.com/Nicholas022400701/ulpwise/blob/main/studies/accuracy-survey-2026-09/README.md) is the first run
 (torch 2.14.0+cpu, numpy 2.2.6, scipy 1.18.1, jax 0.11.2, Linux x86_64 AVX512). The short version:
@@ -327,7 +332,7 @@ cross-checks both against `fractions.Fraction` and `decimal.Decimal` at 80 digit
 - `float16` and `bfloat16` knife edges and exact oracles (ulp distances, edge values, `spacing` and the neighbour functions are done).
 - Exact references for transcendental functions in Rust (correctly rounded `exp`, `log`, ...) so
   the `f64` knife-edge scans do not need mpmath.
-- Survey backends for CUDA and MPS, and `float16` / `bfloat16` rows.
+- Survey backends for CUDA and MPS.
 - Zero copy paths for numpy arrays and torch tensors.
 - More corpus entries, with fixtures for the cases that need data.
 
