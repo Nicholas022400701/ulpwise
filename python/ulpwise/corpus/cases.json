@@ -289,9 +289,9 @@
   {
    "id": "kornia-4838-axis-angle-low-angle-terms",
    "repo": "kornia/kornia",
-   "pr": null,
+   "pr": 5124,
    "issue": 4838,
-   "merged_at": null,
+   "merged_at": "2026-09-30T09:16:03Z",
    "kind": "truncation",
    "title": "axis_angle_to_rotation_matrix low-angle branch is off by theta**3 / 6",
    "symptom": "For theta**2 <= 1e-6 the branch returns I + [v]x + [v]x**2 / 2, so at theta = 9.99e-4 in float64 the matrix is 1.3e-10 from the rotation of its input and from quaternion_to_rotation_matrix(axis_angle_to_quaternion(v)), next to a general branch exact to 2.2e-16.",
@@ -311,9 +311,9 @@
   {
    "id": "kornia-4897-so3-se3-small-angle-digits",
    "repo": "kornia/kornia",
-   "pr": null,
+   "pr": 4941,
    "issue": 4897,
-   "merged_at": null,
+   "merged_at": "2026-09-26T11:43:01Z",
    "kind": "cancellation",
    "title": "So3.log, the So3 Jacobians and Se3.exp/log lose all their digits for small rotations",
    "symptom": "So3.log uses 2 * acos(real) and Se3.exp/log form (1 - cos(theta)) / theta**2 and (theta - sin(theta)) / theta**3 directly, so in float32 a rotation of 1e-4 rad logs back to 0 and Se3.exp([1, 0, 0, 0, 0, 1e-4]) translates by (1, 0, 0) instead of (1, 5e-5, 0); the Jacobians are nan at the identity.",
@@ -426,7 +426,7 @@
     "cv2",
     "ultralytics"
    ],
-   "fixed_in_release": null,
+   "fixed_in_release": "8.4.164",
    "repro": "import logging\nimport tempfile\nfrom pathlib import Path\nimport cv2\nimport numpy as np\nfrom ultralytics.cfg import get_cfg\nfrom ultralytics.data import build_yolo_dataset\nlogging.getLogger(\"ultralytics\").setLevel(logging.ERROR)  # the dataset scan is chatty\nroot = Path(tempfile.mkdtemp())\n(root / \"images\").mkdir()\n(root / \"labels\").mkdir()\ncv2.imwrite(str(root / \"images\" / \"0.jpg\"), np.zeros((32, 32, 3), np.uint8))\n(root / \"labels\" / \"0.txt\").write_text(\"0 0.5 0.5 0.4 0.4\\n\")  # a plain box row, not the 4 corners of an OBB\ndata = {\"names\": {0: \"a\"}, \"nc\": 1, \"channels\": 3}\ntry:\n    build_yolo_dataset(get_cfg(overrides={\"task\": \"obb\", \"imgsz\": 32}), str(root / \"images\"), 1, data, mode=\"val\")\n    actual = [\"no error at load time\"]\nexcept ValueError as e:\n    actual = [\"ValueError\" if \"OBB dataset requires equal numbers of boxes and segments\" in str(e) else str(e)]\nexpected = [\"ValueError\"]\n",
    "check": {
     "type": "equal"
