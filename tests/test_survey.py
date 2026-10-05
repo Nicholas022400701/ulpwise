@@ -1,6 +1,8 @@
 """Unit tests for the survey machinery that do not need any backend."""
 
+import importlib.util
 import math
+import sys
 
 import numpy as np
 import pytest
@@ -61,6 +63,11 @@ def _has(module):
     import importlib.util
 
     return importlib.util.find_spec(module) is not None
+
+
+def _no_op_db():
+    # torch.testing._internal imports expecttest, which a plain torch install does not bring
+    return not _has("torch") or survey.opinfo_unavailable() is not None
 
 
 def _sqrt_entry():
@@ -174,7 +181,7 @@ def test_torch_opinfo_tolerance_defaults_without_an_op_and_never_tightens():
             assert rtol >= rtol0 and atol >= atol0, (entry.name, dtype)
 
 
-@pytest.mark.skipif(not _has("torch"), reason="needs torch's op_db")
+@pytest.mark.skipif(_no_op_db(), reason="needs torch's op_db, torch plus expecttest")
 def test_torch_opinfo_tolerance_reads_an_override_from_op_db():
     import torch
     from torch.testing._internal.common_device_type import precisionOverride, toleranceOverride
@@ -209,7 +216,7 @@ def test_torch_opinfo_tolerance_reads_an_override_from_op_db():
     assert atol >= survey.DEFAULT_TOL["f32"][1] and rtol >= survey.DEFAULT_TOL["f32"][0]
 
 
-@pytest.mark.skipif(not _has("torch"), reason="needs torch's op_db")
+@pytest.mark.skipif(_no_op_db(), reason="needs torch's op_db, torch plus expecttest")
 def test_torch_opinfo_tolerance_selects_the_op_db_variant():
     # polygamma has one op_db entry per order; the first, polygamma_n_0, has no float32 override and
     # polygamma_n_1 has one, so the lookup by name alone used to return the default for polygamma_1
@@ -223,6 +230,40 @@ def test_torch_opinfo_tolerance_selects_the_op_db_variant():
     assert reg["polygamma_2"].opinfo_variant == "polygamma_n_2"
     # an op with a base variant and another variant resolves to the base one without a variant argument
     assert survey.torch_opinfo_tolerance("nn.functional.silu", "f32") == survey.torch_opinfo_tolerance("nn.functional.silu", "f32", "")
+
+
+@pytest.mark.skipif(not _has("torch"), reason="needs torch as a backend")
+def test_survey_says_once_when_op_db_cannot_be_read_and_uses_the_default(monkeypatch):
+    import io
+
+    reason = "ModuleNotFoundError: No module named 'expecttest'"
+    uncached = survey._opinfo.__wrapped__
+    monkeypatch.setattr(survey, "_opinfo", lambda: (None, reason))
+    assert survey.opinfo_unavailable() == reason
+    assert survey.torch_opinfo_tolerance("polygamma", "f32", "polygamma_n_1") == survey.DEFAULT_TOL["f32"]
+    monkeypatch.setattr(survey, "REGISTRY", [_sqrt_entry()])
+    log = io.StringIO()
+    results = survey.survey(backends=("numpy", "torch"), points=24, log=log)
+    torch_rows = [r for r in results if r.backend == "torch"]
+    assert len(torch_rows) == 2
+    for r in torch_rows:
+        assert (r.op_rtol, r.op_atol) == survey.DEFAULT_TOL[r.dtype]
+    text = log.getvalue()
+    assert text.count("torch op_db unavailable") == 1
+    assert reason in text and "expecttest" in text
+    # nothing to say when torch is not surveyed, and no log means no crash
+    log = io.StringIO()
+    survey.survey(backends=("numpy",), points=24, log=log)
+    assert "op_db" not in log.getvalue()
+    assert len(survey.survey(backends=("torch",), dtypes=("f64",), points=24)) == 1
+    # the uncached import itself: a module set to None in sys.modules raises on import
+    monkeypatch.setitem(sys.modules, "torch.testing._internal.common_methods_invocations", None)
+    imports, why = uncached()
+    assert imports is None and why.split(":")[0] in ("ImportError", "ModuleNotFoundError")
+    # and nothing to report when torch is not installed at all
+    find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "torch" else find_spec(name, *a))
+    assert survey.opinfo_unavailable() is None
 
 
 def test_fmt_formats_by_magnitude():

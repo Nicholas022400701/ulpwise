@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- With torch installed but `expecttest` missing, `torch.testing._internal` does not import and
+  `ulpwise survey` silently used the dtype default as the `OpInfo` tolerance, so the `op tol` columns
+  looked like an override that was never read. The survey now logs one line with the import error and
+  the `survey` extra installs `expecttest`. The regression corpus CI job, which has torch but had no
+  `expecttest`, failed on the two `op_db` tests for the same reason; it installs `expecttest` now and the
+  tests skip with the reason where `op_db` is not importable.
 - `ulpwise survey` looked up torch's `OpInfo` tolerance by op name and took the first `op_db` entry
   with that name. `polygamma` has one entry per order, and the first, `polygamma_n_0`, has no
   override, so the `op fail` column of `polygamma_1` and `polygamma_2` in float32 was computed with

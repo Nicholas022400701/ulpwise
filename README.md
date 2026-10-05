@@ -278,7 +278,9 @@ plus the named edge values of the dtype, computes the exact value with mpmath at
 and reports max, p99 and median error in ulps, the fraction of inputs beyond 1 and 10 ulps, non
 finite mismatches and the worst input. For torch it also reports how many inputs the vectorized
 kernel and the scalar tail disagree on, and how many inputs would fail torch's reference test under
-the dtype default tolerance and under the op's `OpInfo` override, read from `op_db`.
+the dtype default tolerance and under the op's `OpInfo` override, read from `op_db`. Reading `op_db` needs
+`expecttest`, a test-only dependency of torch that the `survey` extra installs; without it the survey logs
+one line and uses the default.
 
 [`studies/accuracy-survey-2026-09`](https://github.com/Nicholas022400701/ulpwise/blob/main/studies/accuracy-survey-2026-09/README.md) is the first run
 (torch 2.14.0+cpu, numpy 2.2.6, scipy 1.18.1, jax 0.11.2, Linux x86_64 AVX512). The short version:

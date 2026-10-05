@@ -25,7 +25,8 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7", "numpy"]
-survey = ["numpy", "mpmath>=1.3"]
+# expecttest: torch.testing._internal imports it and torch does not install it, the survey needs it to read op_db
+survey = ["numpy", "mpmath>=1.3", "expecttest"]
 
 [project.scripts]
 ulpwise = "ulpwise.__main__:main"

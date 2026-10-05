@@ -61,7 +61,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install pytest numpy packaging scipy mpmath
+      - run: pip install pytest numpy packaging scipy mpmath expecttest
       - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
       - run: pip install kornia timm peft torchrl ultralytics
       - run: pip install .

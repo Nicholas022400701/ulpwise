@@ -14,7 +14,9 @@ numbers are the error of the implementation, not of the input rounding.
 from __future__ import annotations
 
 import csv
+import functools
 import importlib
+import importlib.util
 import math
 import sys
 import time
@@ -411,23 +413,45 @@ def backend_callable(backend: str, entry: Entry, dtype: str):
     raise ValueError(f"unknown backend {backend!r}")
 
 
-def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str, variant: Optional[str] = None) -> Tuple[float, float]:
-    """Effective (rtol, atol) of torch's TestUnaryUfuncs.test_reference_numerics_* for the op on CPU.
+@functools.lru_cache(maxsize=None)
+def _opinfo():
+    """(torch, op_db and the override decorators, None), or (None, why they cannot be imported).
 
-    ``variant`` selects the ``variant_test_name`` when the op has several entries in ``op_db`` (``polygamma`` has
-    one per order, each with its own overrides). Without it the base variant is used, or the first entry when the
-    op has no base variant.
+    ``torch.testing._internal`` imports ``expecttest``, which torch does not install. The result is cached so a
+    failed import is not retried for every function and dtype of the survey.
     """
-    rtol, atol = DEFAULT_TOL[dtype]
-    if opinfo_name is None:
-        return rtol, atol
     try:
         import torch  # noqa: PLC0415
         from torch.testing._internal.common_device_type import precisionOverride, toleranceOverride  # noqa: PLC0415
         from torch.testing._internal.common_methods_invocations import op_db  # noqa: PLC0415
         from torch.testing._internal.opinfo.core import DecorateInfo  # noqa: PLC0415
-    except Exception:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001
+        return None, f"{type(ex).__name__}: {ex}"
+    return (torch, op_db, precisionOverride, toleranceOverride, DecorateInfo), None
+
+
+def opinfo_unavailable() -> Optional[str]:
+    """Why torch's ``op_db`` cannot be read, or None when it can or when torch itself is not installed."""
+    if importlib.util.find_spec("torch") is None:
+        return None
+    return _opinfo()[1]
+
+
+def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str, variant: Optional[str] = None) -> Tuple[float, float]:
+    """Effective (rtol, atol) of torch's TestUnaryUfuncs.test_reference_numerics_* for the op on CPU.
+
+    ``variant`` selects the ``variant_test_name`` when the op has several entries in ``op_db`` (``polygamma`` has
+    one per order, each with its own overrides). Without it the base variant is used, or the first entry when the
+    op has no base variant. When ``op_db`` cannot be imported the dtype default is returned and
+    ``opinfo_unavailable`` tells why.
+    """
+    rtol, atol = DEFAULT_TOL[dtype]
+    if opinfo_name is None:
         return rtol, atol
+    imports, _ = _opinfo()
+    if imports is None:
+        return rtol, atol
+    torch, op_db, precisionOverride, toleranceOverride, DecorateInfo = imports
     tdt = {"f32": torch.float32, "f64": torch.float64}[dtype]
     ops = [op for op in op_db if op.name == opinfo_name]
     if variant is None:
@@ -514,6 +538,14 @@ def survey(
     """Run the survey and return one Result per (function, backend, dtype) that could be evaluated."""
     mp = _mp()
     mp.mp.prec = prec
+    if log and "torch" in backends:
+        reason = opinfo_unavailable()
+        if reason:
+            print(
+                f"torch op_db unavailable ({reason}), op tol is the dtype default: torch.testing needs expecttest,"
+                " pip install 'ulpwise[survey]'",
+                file=log,
+            )
     out: List[Result] = []
     for entry in REGISTRY:
         if functions and entry.name not in functions:
