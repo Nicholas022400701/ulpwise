@@ -1,10 +1,12 @@
 """Run the regression corpus against whatever is installed.
 
-A case is skipped when its packages are missing. It is an expected failure (non strict) when the
-installed release is not known to contain the fix, so a red run means the bug is present in what
-you have installed, and a green one means it is gone.
+A case is skipped when its packages are missing. It is an expected failure when the installed
+release is not known to contain the fix, so a red run means the bug is present in what you have
+installed, and a green one means it is gone. With ``ULPWISE_CORPUS_STRICT=1`` an unexpected pass
+is a failure too: a release fixed the case and ``fixed_in_release`` in ``cases.json`` is stale.
 """
 
+import os
 import re
 import sys
 
@@ -13,6 +15,7 @@ import pytest
 from ulpwise import corpus
 
 CASES = corpus.load()
+STRICT = os.environ.get("ULPWISE_CORPUS_STRICT", "0") not in ("", "0")
 
 
 def _release_has_fix(case):
@@ -36,7 +39,7 @@ def test_corpus_case(case, request):
     if not _release_has_fix(case):
         request.node.add_marker(
             pytest.mark.xfail(
-                strict=False,
+                strict=STRICT,
                 reason=f"installed {case['requires'][-1]} {corpus.installed_version(case)} is not known to contain "
                 f"the fix from {case['repo']}#{case['pr'] or case.get('issue')}",
             )

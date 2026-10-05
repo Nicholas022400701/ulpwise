@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # Monday 06:17 UTC: the corpus against the latest releases, strict
+  workflow_dispatch:
 
 jobs:
   rust:
@@ -48,6 +51,9 @@ jobs:
   corpus:
     name: regression corpus (ubuntu, torch cpu)
     runs-on: ubuntu-latest
+    env:
+      # On the weekly run an unexpected pass is a failure: a release fixed a case, update cases.json.
+      ULPWISE_CORPUS_STRICT: ${{ github.event_name == 'schedule' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -56,7 +62,7 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest numpy packaging scipy
       - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install kornia timm peft torchrl
+      - run: pip install kornia timm peft torchrl ultralytics
       - run: pip install .
       - run: pytest tests -q -p no:cacheprovider -rxXs
       - name: sqrt conformance of torch and numpy on this platform

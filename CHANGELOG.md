@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- CI runs the regression corpus every Monday (and on `workflow_dispatch`) with
+  `ULPWISE_CORPUS_STRICT=1`, which turns an unexpected pass into a failure: a release fixed a case
+  and `fixed_in_release` is stale. Push and pull request runs stay non strict. The corpus job also
+  installs `ultralytics`, so the ultralytics case runs there instead of being skipped.
 - Corpus metadata: kornia #4838 is fixed by kornia #5124 (merged 2026-09-30) and kornia #4897 by
   kornia #4941 (merged 2026-09-26); both cases now carry the `pr` and `merged_at`, and stay expected
   failures because no kornia release after 0.9.0rc1 (2026-07-19) exists yet. ultralytics #26330 sets

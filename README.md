@@ -132,7 +132,9 @@ whose packages are installed; a case is an expected failure while the installed 
 known to contain the fix, so the run tells you which bugs are present in your environment.
 `ulpwise corpus` does the same without pytest, one line per case with the installed version and
 `present`, `fixed` or `skipped`; `ulpwise corpus --repo pytorch --fail-if-present` is the CI gate
-form.
+form. `ULPWISE_CORPUS_STRICT=1 pytest tests/test_corpus.py` also fails on an unexpected pass, which
+is how the weekly scheduled run of this repository notices that a release fixed a case before
+`fixed_in_release` says so.
 
 | case | kind | merged |
 |---|---|---|
