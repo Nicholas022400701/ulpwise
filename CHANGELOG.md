@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Eight more kornia cases, each present on kornia 0.8.3 and fixed on main: `Se2.exp`/`Se2.log` at
+  theta = 1e-8 (#4960, the translation came back as (1, 2) from exp and (1e-8, -5e-9) from log),
+  `point_line_distance` of a homogeneous point with w = 2 (#4975, 4.0 for 1.5), `Quaternion.__pow__`
+  of -1 (#5003, the zero quaternion), `So2` from a `(B, 1)` angle times `(B, 2)` points (#5005,
+  `(B, B, 2)`), `solve_cubic` of `1e-30 x^3 + 2x - 6` (#5024, roots `[0, 0, 0]` for 3),
+  `RgbToGrayscale` on uint8 (#5111, all zeros), `conv_soft_argmax2d` with a far-away peak (#5134,
+  the weak window's coordinates moved from 0.8834 to 1.0) and `get_gaussian_discrete_kernel1d(1,
+  sigma)` (#5376, 3 taps). The whole kornia block of the corpus, 13 cases, reads `present` on 0.8.3.
 - CI runs the regression corpus every Monday (and on `workflow_dispatch`) with
   `ULPWISE_CORPUS_STRICT=1`, which turns an unexpected pass into a failure: a release fixed a case
   and `fixed_in_release` is stale. Push and pull request runs stay non strict. The corpus job also

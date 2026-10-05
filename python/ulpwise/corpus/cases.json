@@ -432,6 +432,170 @@
     "type": "equal"
    },
    "before_fix": "['no error at load time'] on ultralytics 8.4.163: the dataset loads and the crash comes later, in val or in the loss"
+  },
+  {
+   "id": "kornia-4960-se2-exp-log-small-angle",
+   "repo": "kornia/kornia",
+   "pr": 4960,
+   "merged_at": "2026-09-26T14:13:24Z",
+   "kind": "cancellation",
+   "title": "Se2.exp and Se2.log lost the translation at small angles",
+   "symptom": "The closed forms sin(theta) / theta and (1 - cos(theta)) / theta cancelled just above theta = 0, so at theta = 1e-8 in float64 Se2.exp(v) had a wrong translation and log(exp(v)) did not return v. The fix writes both through the cancellation-free series below 0.5 rad.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import Se2\nv = torch.tensor([[1.0, 2.0, 1e-8]], dtype=torch.float64)  # translation (1, 2) and a turn of 1e-8 rad\ng = Se2.exp(v)\nactual = g.matrix()[0, :2, 2].tolist() + g.log().flatten().tolist()\nb = 0.5e-8  # (1 - cos(theta)) / theta = theta / 2 - theta^3 / 24; sin(theta) / theta = 1 - theta^2 / 6 rounds to 1\nexpected = [1.0 - 2.0 * b, 2.0 + b, 1.0, 2.0, 1e-8]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 1e-13
+   },
+   "before_fix": "exp translation [1.0, 2.0] and log [1e-08, -5e-09, 1e-08] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-4975-point-line-distance-homogeneous-weight",
+   "repo": "kornia/kornia",
+   "pr": 4975,
+   "merged_at": "2026-09-27T14:56:45Z",
+   "kind": "scale",
+   "title": "point_line_distance ignored the weight of a homogeneous point",
+   "symptom": "For a point (x, y, w) the distance to the line (a, b, c) is |a x + b y + c w| / (|w| sqrt(a^2 + b^2)); the function added c instead of c w and never divided by w, which is right only for w = 1. The homogeneous point (3, 5, 2), that is (1.5, 2.5), was 4.0 from the line y = 1 instead of 1.5.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.linalg import point_line_distance\nline = torch.tensor([[0.0, 1.0, -1.0]], dtype=torch.float64)  # the line y = 1\npoint = torch.tensor([[[3.0, 5.0, 2.0]]], dtype=torch.float64)  # the homogeneous point (1.5, 2.5): w = 2\nactual = point_line_distance(point, line).flatten().tolist()\nexpected = [1.5]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "[3.999999996] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5003-quaternion-pow-negative-real-axis",
+   "repo": "kornia/kornia",
+   "pr": 5003,
+   "merged_at": "2026-09-27T14:57:39Z",
+   "kind": "branch cut",
+   "title": "Quaternion.__pow__ returned the zero quaternion on the negative real axis",
+   "symptom": "For q = -1 (a half turn, angle pi, axis undefined) the vector part was scaled by sin(t pi) / sin(pi) times a zero vector, so q ** 0.5 was [0, 0, 0, 0], whose square is 0, not q. The fix takes the axis e_x there, so q ** 0.5 = [0, 1, 0, 0] and (q ** 0.5) ** 2 = q.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.quaternion import Quaternion\nq = Quaternion(torch.tensor([[-1.0, 0.0, 0.0, 0.0]], dtype=torch.float64))  # a half turn: angle pi, axis undefined\nroot = q ** 0.5\nactual = root.data.flatten().tolist() + (root * root).data.flatten().tolist()\nexpected = [0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "[6.1e-17, 0.0, 0.0, 0.0, 3.7e-33, 0.0, 0.0, 0.0] on kornia 0.8.3: the zero quaternion and its square"
+  },
+  {
+   "id": "kornia-5005-so2-column-angle-pairwise",
+   "repo": "kornia/kornia",
+   "pr": 5005,
+   "merged_at": "2026-09-27T14:56:45Z",
+   "kind": "shape",
+   "title": "So2 built from a (B, 1) angle rotated (B, 2) points into (B, B, 2)",
+   "symptom": "So2.exp accepted a (B, 1) angle, the column a regression head returns, and kept the shape, so So2 * points broadcast every rotation against every point and returned (B, B, 2) instead of the pairwise (B, 2); matrix() was (B, 1, 2, 2). The fix reads a (B, 1) z or angle as (B,).",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import So2\nangle = torch.tensor([[0.0], [1.5707963267948966]], dtype=torch.float64)  # (B, 1): one angle per sample, as a column\npoints = torch.tensor([[1.0, 0.0], [1.0, 0.0]], dtype=torch.float64)\nrotated = So2.exp(angle) * points\nactual = [list(rotated.shape), rotated.flatten().tolist()]\nexpected = [[2, 2], [1.0, 0.0, 0.0, 1.0]]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "shape [2, 2, 2] on kornia 0.8.3: every rotation applied to every point"
+  },
+  {
+   "id": "kornia-5024-solve-cubic-tiny-leading-coefficient",
+   "repo": "kornia/kornia",
+   "pr": 5024,
+   "merged_at": "2026-09-28T20:19:10Z",
+   "kind": "scale",
+   "title": "solve_cubic lost the root of a cubic with a tiny leading coefficient",
+   "symptom": "The solver normalised every row by its leading coefficient, so 1e-30 x^3 + 2 x - 6 became x^3 + 2e30 x - 6e30 and the A + B closed form cancelled; the real root 3 came back wrong. The fix scales rows by a power of two and avoids that cancellation.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.solvers import solve_cubic\ncoeffs = torch.tensor([[1e-30, 0.0, 2.0, -6.0]], dtype=torch.float64)  # 1e-30 x^3 + 2 x - 6: the real root is 3\nactual = solve_cubic(coeffs).flatten().tolist()\nexpected = [3.0, 0.0, 0.0]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 2e-15
+   },
+   "before_fix": "[0.0, 0.0, 0.0] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5111-rgb-to-grayscale-uint8-module",
+   "repo": "kornia/kornia",
+   "pr": 5111,
+   "merged_at": "2026-09-30T09:33:51Z",
+   "kind": "dtype",
+   "title": "RgbToGrayscale turned a uint8 image into zeros",
+   "symptom": "The module filled in rgb_weights=[0.299, 0.587, 0.114] as a float tensor before calling the function, which then applied float weights to a uint8 image and cast the products back to uint8; the function with rgb_weights=None picks integer weights for uint8. A uint8 image of 200s came out all zeros from the module and 199 from the function.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.color import RgbToGrayscale, rgb_to_grayscale\nimage = torch.full((1, 3, 2, 2), 200, dtype=torch.uint8)\nactual = [int(RgbToGrayscale()(image).max()), int(RgbToGrayscale()(image).min())]\nexpected = [int(rgb_to_grayscale(image).max()), int(rgb_to_grayscale(image).min())]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[0, 0] from the module on kornia 0.8.3, next to [56, 56] from the function, whose uint8 weights wrapped as well (kornia #5090)"
+  },
+  {
+   "id": "kornia-5134-conv-soft-argmax-window-softmax",
+   "repo": "kornia/kornia",
+   "pr": 5134,
+   "merged_at": "2026-09-30T12:50:35Z",
+   "kind": "normalisation",
+   "title": "conv_soft_argmax2d shifted every window's exponent by the maximum of the whole map",
+   "symptom": "The soft argmax of a window is the softmax of its own values, but the exponent was shifted by the global maximum and eps added to each denominator, so a window far below the global peak, in units of temperature, had its weights underflow and its coordinates pulled to zero. A weak bump at (6, 6) of a 7x7 map got different coordinates depending on whether a peak of 200 sat at (0, 0).",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.subpix import conv_soft_argmax2d\nquiet = torch.zeros(1, 1, 7, 7)\nquiet[0, 0, 6, 6] = 1.0  # a weak bump in the bottom right corner\nloud = quiet.clone()\nloud[0, 0, 0, 0] = 200.0  # a peak far away, 200 temperatures above the bump\nkwargs = dict(kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), temperature=torch.tensor(1.0), normalized_coordinates=True)\nactual = conv_soft_argmax2d(loud, **kwargs)[0, 0, :, 6, 6].tolist()\nexpected = conv_soft_argmax2d(quiet, **kwargs)[0, 0, :, 6, 6].tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-06,
+    "rtol": 0.0
+   },
+   "before_fix": "[1.0, 1.0] with the peak on kornia 0.8.3, against [0.8834, 0.8834] without it"
+  },
+  {
+   "id": "kornia-5376-gaussian-discrete-kernel-tap-count",
+   "repo": "kornia/kornia",
+   "pr": 5376,
+   "merged_at": "2026-10-03T11:08:12Z",
+   "kind": "shape",
+   "title": "get_gaussian_discrete_kernel1d(1, sigma) returned 3 taps",
+   "symptom": "The tail of the modified Bessel series was built from at least the orders 0 and 1 even when one tap was asked for, so kernel_size=1 returned 3 taps and the single tap is not [1.0]; kernel_size=5 was 5 taps as asked.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.filters import get_gaussian_discrete_kernel1d\none = get_gaussian_discrete_kernel1d(1, 1.0)\nfive = get_gaussian_discrete_kernel1d(5, 1.0)\nactual = [one.numel(), five.numel(), one.flatten().tolist()]\nexpected = [1, 5, [1.0]]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "3 taps [0.2358, 0.5283, 0.2358] for kernel_size=1 on kornia 0.8.3"
   }
  ]
 }

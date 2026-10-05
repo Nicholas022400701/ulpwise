@@ -153,6 +153,14 @@ is how the weekly scheduled run of this repository notices that a release fixed 
 | ultralytics #26330 OBB train and val on plain box labels crashed in the validator or the loss instead of at load time | crash | 2026-09-25 |
 | kornia #4941 `So3.log`, the `So3` Jacobians and `Se3.exp/log` lost all digits for small angles (issue #4897) | series | 2026-09-26 |
 | kornia #5124 `axis_angle_to_rotation_matrix` dropped the `theta^2` terms below 1e-3 rad (issue #4838) | series | 2026-09-30 |
+| kornia #4960 `Se2.exp` and `Se2.log` lost the translation at small angles | cancellation | 2026-09-26 |
+| kornia #4975 `point_line_distance` ignored the weight of a homogeneous point | scale | 2026-09-27 |
+| kornia #5003 `Quaternion.__pow__` returned the zero quaternion on the negative real axis | branch cut | 2026-09-27 |
+| kornia #5005 `So2` from a `(B, 1)` angle rotated `(B, 2)` points into `(B, B, 2)` | shape | 2026-09-27 |
+| kornia #5024 `solve_cubic` lost the root of a cubic with a tiny leading coefficient | scale | 2026-09-28 |
+| kornia #5111 `RgbToGrayscale` turned a uint8 image into zeros | dtype | 2026-09-30 |
+| kornia #5134 `conv_soft_argmax2d` shifted every window's exponent by the maximum of the whole map | normalisation | 2026-09-30 |
+| kornia #5376 `get_gaussian_discrete_kernel1d(1, sigma)` returned 3 taps | shape | 2026-10-03 |
 | pytorch #198448 `torch.sqrt` float64 not correctly rounded at 27 of 64 knife edges | rounding | open |
 | pytorch #198583 `bessel_j0/j1/y0/y1`, `airy_ai` float64 lose up to 12 digits (`p1evl` leading 1) | digits | open |
 | torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |
