@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Dependabot (`.github/dependabot.yml`) opens weekly pull requests for Cargo.lock and the
+  workflow actions, so pyo3 patch releases land through CI-tested pull requests instead of a
+  hand-run `cargo update`; Python dependencies stay unpinned on purpose.
 - Eight more kornia cases, each present on kornia 0.8.3 and fixed on main: `Se2.exp`/`Se2.log` at
   theta = 1e-8 (#4960, the translation came back as (1, 2) from exp and (1e-8, -5e-9) from log),
   `point_line_distance` of a homogeneous point with w = 2 (#4975, 4.0 for 1.5), `Quaternion.__pow__`

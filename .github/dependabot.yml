@@ -1,0 +1,23 @@
+# Dependabot keeps Cargo.lock and the workflow actions current through pull requests that CI
+# tests, so a pyo3 patch release (0.29.2 -> 0.29.3 at the time of writing) is picked up without
+# anyone running cargo by hand. Python dependencies stay unpinned in pyproject.toml on purpose:
+# the corpus is meant to run against whatever torch, kornia, timm, peft, torchrl and
+# ultralytics the user has installed.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(cargo)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(actions)"
