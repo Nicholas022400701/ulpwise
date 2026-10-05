@@ -6,6 +6,9 @@
   to, so `log(exp(x).sum(-1))` was not a `logsumexp-by-hand` finding while `log(exp(x).sum())` and
   `log(exp(x).sum(dim=-1))` were. A method call whose first argument is a dimension (an integer, `None`
   or a tuple of them) is now read as applying to its receiver, like the argument-less form.
+- `ulpwise scan` printed a `SyntaxWarning` (a `DeprecationWarning` before Python 3.12) for every invalid
+  escape sequence in the files it scanned, four lines on kornia. The parse now ignores those warnings;
+  a file that does not parse is skipped as before.
 - `ulpwise survey` without scipy installed died at `ndtri` with a `ModuleNotFoundError` and lost every
   row computed before it: the reference started its Newton iteration from `scipy.special.ndtri`. It now
   starts from a bisection on `math.erfc`, returns an exact zero at `p = 0.5` (a Newton step there leaves a

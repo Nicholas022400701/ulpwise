@@ -2,6 +2,7 @@
 test directories are skipped and the CLI exit code follows --fail-on."""
 
 import textwrap
+import warnings
 
 import pytest
 
@@ -96,6 +97,14 @@ def test_every_rule_fires_once_on_its_snippet_and_the_guard_silences_it():
     assert all(f.snippet and f.line > 0 and f.path == "demo.py" for f in findings)
     busiest = max(spots, key=lambda s: s.calls)
     assert busiest.function == "misc" and busiest.calls == 7 and "exp" in busiest.names
+
+
+def test_scan_is_quiet_about_the_escape_sequences_of_the_scanned_file():
+    source = 'import torch\n\n\ndef f(x):\n    return "\\%" + str(torch.exp(x))\n'
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        findings, spots = scan.scan_source(source, "demo.py")
+    assert findings == [] and [s.function for s in spots] == ["f"]
 
 
 def test_scan_tree_skips_tests_and_reports(tmp_path):

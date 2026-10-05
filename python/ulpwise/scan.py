@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -333,7 +334,10 @@ def python_files(root: str, include_tests: bool = False) -> List[str]:
 
 def scan_source(source: str, path: str = "<string>") -> Tuple[List[Finding], List[HotSpot]]:
     try:
-        tree = ast.parse(source)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)  # invalid escape sequences in the scanned file
+            warnings.simplefilter("ignore", DeprecationWarning)  # the same warning before Python 3.12
+            tree = ast.parse(source)
     except SyntaxError:
         return [], []
     lines = source.splitlines()
