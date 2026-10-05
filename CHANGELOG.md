@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `ulpwise survey` looked up torch's `OpInfo` tolerance by op name and took the first `op_db` entry
+  with that name. `polygamma` has one entry per order, and the first, `polygamma_n_0`, has no
+  override, so the `op fail` column of `polygamma_1` and `polygamma_2` in float32 was computed with
+  the dtype default (`rtol 1.3e-6`, `atol 1e-5`) instead of torch's `polygamma_n_1` and `_n_2`
+  override (`rtol 0.01`, `atol 1e-4`). `Entry` gains `opinfo_variant`, `torch_opinfo_tolerance`
+  takes a `variant` and otherwise prefers the base variant, and the two registry entries name
+  theirs. In `studies/accuracy-survey-2026-09` the `polygamma_1` f32 row goes from 86 to 7 inputs
+  failing the op's tolerance; the measured errors are unchanged (erratum in its README).
+- `tests/test_survey.py` covers the survey itself now: `survey()` on `sqrt` against numpy and torch
+  (numpy within half an ulp, torch under one), an inexact backend, a backend that raises or returns
+  the wrong shape, the backend resolution, the `op_db` tolerance lookup including the variant case,
+  the csv and markdown writers, `versions()`, `main()` and the `survey` subcommand. CI installs
+  `mpmath` for the Python job so these tests run there instead of being skipped.
 - Six more kornia cases, each present on kornia 0.8.3 and fixed on main: the Hessian of `So3.exp`
   at the identity (#4972, nine nan for `-I / 4` and zeros), `sampson_epipolar_distance` of a point on
   its epiline with `squared=False` (#5116, `sqrt(eps)` = 1e-4 for 0) and of the same `F` scaled by

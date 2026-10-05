@@ -40,6 +40,7 @@ class Entry:
     jax: Optional[str] = None  # attribute path below `jax.`
     opinfo: Optional[str] = None  # torch OpInfo name for the tolerance lookup
     note: str = ""
+    opinfo_variant: Optional[str] = None  # OpInfo variant_test_name when the op has several entries in op_db
 
 
 def _mp():
@@ -75,7 +76,8 @@ def grid(domain: Tuple, dtype: str, points: int) -> np.ndarray:
         xs = 1 + np.logspace(eps, math.log10(domain[1]), points)
     else:
         raise ValueError(f"unknown domain kind {kind!r}")
-    xs = xs.astype(npdt)
+    with np.errstate(over="ignore"):  # a domain wider than the dtype overflows to inf here and is dropped below
+        xs = xs.astype(npdt)
     lo, hi = float(xs.min()), float(xs.max())
     edges = [v for _, v in ulpwise.special(dtype) if lo <= v <= hi and math.isfinite(v)]
     xs = np.unique(np.concatenate([xs, np.asarray(edges, dtype=npdt)]).astype(npdt))
@@ -337,8 +339,8 @@ REGISTRY: List[Entry] = [
     Entry("scaled_modified_bessel_k1", lambda x: _mp().exp(x) * _mp().besselk(1, x), ("log", 1e-8, 1e6), "special.scaled_modified_bessel_k1", None, "k1e", None, "special.scaled_modified_bessel_k1"),
     Entry("spherical_bessel_j0", _ref_spherical_j0, ("symlog", 1e-8, 1e5), "special.spherical_bessel_j0", None, _scipy_spherical_j0, None, "special.spherical_bessel_j0"),
     Entry("airy_ai", _M("airyai"), ("symlog", 1e-8, 50), "special.airy_ai", None, _scipy_airy, None, "special.airy_ai"),
-    Entry("polygamma_1", _ref_polygamma(1), ("symlog", 1e-8, 1e5), _torch_polygamma(1), None, _scipy_polygamma(1), _jax_polygamma(1), "polygamma", "trigamma"),
-    Entry("polygamma_2", _ref_polygamma(2), ("symlog", 1e-8, 1e5), _torch_polygamma(2), None, _scipy_polygamma(2), _jax_polygamma(2), "polygamma"),
+    Entry("polygamma_1", _ref_polygamma(1), ("symlog", 1e-8, 1e5), _torch_polygamma(1), None, _scipy_polygamma(1), _jax_polygamma(1), "polygamma", "trigamma", opinfo_variant="polygamma_n_1"),
+    Entry("polygamma_2", _ref_polygamma(2), ("symlog", 1e-8, 1e5), _torch_polygamma(2), None, _scipy_polygamma(2), _jax_polygamma(2), "polygamma", opinfo_variant="polygamma_n_2"),
     Entry("zeta", _ref_zeta, ("ge1", 1e3), _torch_zeta, None, _scipy_zeta, _jax_zeta, "special.zeta", "Riemann zeta, q = 1"),
     # activations
     Entry("gelu", _ref_gelu, ("symlog", 1e-8, 40), "nn.functional.gelu", None, None, _jax_gelu_exact, "nn.functional.gelu"),
@@ -409,8 +411,13 @@ def backend_callable(backend: str, entry: Entry, dtype: str):
     raise ValueError(f"unknown backend {backend!r}")
 
 
-def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str) -> Tuple[float, float]:
-    """Effective (rtol, atol) of torch's TestUnaryUfuncs.test_reference_numerics_* for the op on CPU."""
+def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str, variant: Optional[str] = None) -> Tuple[float, float]:
+    """Effective (rtol, atol) of torch's TestUnaryUfuncs.test_reference_numerics_* for the op on CPU.
+
+    ``variant`` selects the ``variant_test_name`` when the op has several entries in ``op_db`` (``polygamma`` has
+    one per order, each with its own overrides). Without it the base variant is used, or the first entry when the
+    op has no base variant.
+    """
     rtol, atol = DEFAULT_TOL[dtype]
     if opinfo_name is None:
         return rtol, atol
@@ -422,9 +429,12 @@ def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str) -> Tuple[floa
     except Exception:  # noqa: BLE001
         return rtol, atol
     tdt = {"f32": torch.float32, "f64": torch.float64}[dtype]
-    for op in op_db:
-        if op.name != opinfo_name:
-            continue
+    ops = [op for op in op_db if op.name == opinfo_name]
+    if variant is None:
+        ops = [op for op in ops if not op.variant_test_name] or ops
+    else:
+        ops = [op for op in ops if op.variant_test_name == variant]
+    for op in ops[:1]:
         for d in op.decorators:
             if isinstance(d, precisionOverride) and tdt in d.d:
                 atol = max(atol, d.d[tdt])
@@ -443,7 +453,6 @@ def torch_opinfo_tolerance(opinfo_name: Optional[str], dtype: str) -> Tuple[floa
                         atol, rtol = max(atol, t.atol), max(rtol, t.rtol)
                     elif isinstance(dec, precisionOverride) and tdt in dec.d:
                         atol = max(atol, dec.d[tdt])
-        break
     return rtol, atol
 
 
@@ -547,7 +556,7 @@ def survey(
                     refd = np.array([float(r) if (r is not None and not mp.isinf(r)) else np.nan for r in refs])
                     rtol, atol = DEFAULT_TOL[dtype]
                     default_fail = int((absdiff[finite_ref] > atol + rtol * np.abs(refd[finite_ref])).sum())
-                    op_rtol, op_atol = torch_opinfo_tolerance(entry.opinfo, dtype)
+                    op_rtol, op_atol = torch_opinfo_tolerance(entry.opinfo, dtype, entry.opinfo_variant)
                     op_fail = int((absdiff[finite_ref] > op_atol + op_rtol * np.abs(refd[finite_ref])).sum())
                 res = Result(
                     entry.name,

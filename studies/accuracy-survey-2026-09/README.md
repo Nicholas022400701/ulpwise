@@ -63,7 +63,8 @@ made of the dtype default and a per op override, and the survey reads both out o
   `x = 6.9`: a single precision recipe (pytorch #198663, patch attached). The default float64
   tolerance passes it, so no override was ever needed. In float32 the reflection
   `pi^2 / sin(pi x)^2` at large negative `x` is far worse (`x = -60619`: got 8961, exact 7285) and
-  86 of 616 inputs fail the float32 tolerance, at inputs the torch tests do not sample.
+  86 of 616 inputs fail the default float32 tolerance and 7 still fail the override torch gives
+  `polygamma_n_1` (`rtol = 0.01`, `atol = 1e-4`), at inputs the torch tests do not sample.
 - **`erfcx` in float32** is 44 ulps off at `x = -8.44` and 4 inputs fail torch's float32 tolerance.
   The negative branch computes `2 * exp(x * x) - erfcx(-x)` and `x * x` is rounded in float32
   before the `exp`. The same rounding gives 157 ulps in float64 at `x = -23.25`, where scipy's
@@ -141,3 +142,14 @@ as the 27 of 64 `torch.sqrt` inputs found by `knife_edges` in the corpus are not
 for. Accuracy near singularities is measured at the rounded input, which excludes the conditioning
 of the function itself, and the grid is log spaced, so regions of width 1e-3 around a zero hold only
 a handful of points.
+
+## Erratum, 2026-10-05
+
+The `torch op fail` and `op (rtol, atol)` columns of the two float32 `polygamma` rows were computed with
+the tolerance of the first `polygamma` entry in `op_db`, the `polygamma_n_0` variant, which has no
+override. torch tests `polygamma_n_1` and `polygamma_n_2` with `toleranceOverride({float32: tol(atol=1e-4,
+rtol=1e-2)})`. `results.csv` and `results.md` now carry the per variant tolerance: `polygamma_1` f32 fails
+it at 7 of 616 inputs instead of 86, `polygamma_2` f32 at 0 as before. The measured errors did not change;
+the rows were re-measured with `ulpwise survey --functions polygamma_1,polygamma_2 --backends torch
+--dtypes f32` on the same torch 2.14.0+cpu and gave the same max, p99 and nonfinite counts. No other row
+has several `op_db` entries with overrides that differ.

@@ -108,9 +108,9 @@ torch columns: `vec!=scalar` is the number of inputs where the vectorized kernel
 | spherical_bessel_j0 | f64 | 0.97 (0.86) |  | 1.4 (1.1) |  | 0 | 0 | 0 | (1e-07, 1e-07) |
 | airy_ai | f32 | 12,371 (119) |  | 0.5 (0.49) |  | 0 | 0 | 0 | (1.3e-06, 0.001) |
 | airy_ai | f64 | 6.1e+12 (2.5e+06) |  | 749 (95) |  | 0 | 3 | 0 | (1e-07, 1e-05) |
-| polygamma_1 | f32 | 3.4e+06 (106,186) +7 nonfinite |  | 1.2e-08 (7.6e-09) +7 nonfinite |  | 0 | 86 | 86 | (1.3e-06, 1e-05) |
+| polygamma_1 | f32 | 3.4e+06 (106,186) +7 nonfinite |  | 1.2e-08 (7.6e-09) +7 nonfinite |  | 0 | 86 | 7 | (0.01, 0.0001) |
 | polygamma_1 | f64 | 4.0e+06 (3.1e+06) +7 nonfinite |  | 6.1 (3.7) +7 nonfinite |  | 0 | 0 | 0 | (1e-07, 1e-07) |
-| polygamma_2 | f32 | 25 (0.88) +7 nonfinite |  | 3.2e-08 (1e-08) +7 nonfinite |  | 0 | 0 | 0 | (1.3e-06, 1e-05) |
+| polygamma_2 | f32 | 25 (0.88) +7 nonfinite |  | 3.2e-08 (1e-08) +7 nonfinite |  | 0 | 0 | 0 | (0.01, 0.0001) |
 | polygamma_2 | f64 | 319 (3.9) +7 nonfinite |  | 319 (3.9) +7 nonfinite |  | 0 | 0 | 0 | (1e-07, 1e-07) |
 | zeta | f32 | 0.5 (0.49) |  | 0.5 (0.49) | 2.5 (1.5) | 0 | 0 | 0 | (1.3e-06, 1e-05) |
 | zeta | f64 | 3.3 (2) |  | 3.3 (2) | 2.3 (1.8) | 0 | 0 | 0 | (1e-07, 1e-07) |
