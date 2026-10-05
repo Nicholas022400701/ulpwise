@@ -50,6 +50,23 @@ def test_reference_formulas_keep_the_tails():
     assert reg["gelu_tanh"].ref(mp.mpf(-7.3)) < 0
 
 
+def test_ndtri_reference_needs_no_scipy(monkeypatch):
+    # the reference used to start its Newton iteration from scipy's ndtri, so a survey without scipy installed
+    # died at ndtri with a ModuleNotFoundError and lost every row before it
+    monkeypatch.setitem(sys.modules, "scipy", None)
+    monkeypatch.setitem(sys.modules, "scipy.special", None)
+    mp = survey._mp()
+    mp.mp.prec = 200
+    for p in (5e-324, 1e-300, 1e-38, 0.02425, 0.3, 0.7, 1 - 1e-16, 1 - 2**-53):
+        x = survey._mpf_ref(survey._ref_ndtri, p)
+        assert abs(mp.ncdf(x) - p) <= mp.mpf(10) ** -50 * p, p
+    assert survey._mpf_ref(survey._ref_ndtri, 0.5) == 0  # exactly, torch and scipy return 0.0 there
+    assert survey._mpf_ref(survey._ref_ndtri, 0.75) == -survey._mpf_ref(survey._ref_ndtri, 0.25)  # both exact doubles
+    assert survey._mpf_ref(survey._ref_ndtri, 0.0) == mp.mpf("-inf")
+    assert survey._mpf_ref(survey._ref_ndtri, 1.0) == mp.mpf("inf")
+    assert survey._mpf_ref(survey._ref_ndtri, -0.1) is None and survey._mpf_ref(survey._ref_ndtri, 1.1) is None
+
+
 def test_registry_names_are_unique():
     names = [e.name for e in survey.REGISTRY]
     assert len(names) == len(set(names))
@@ -196,6 +213,15 @@ def test_survey_measures_sqrt_in_numpy_and_torch(monkeypatch):
     text = log.getvalue()
     assert text.count("sqrt") == len(results)
     assert "nonfinite 0" in text
+
+
+def test_survey_evaluates_the_reference_only_when_a_backend_has_the_function(monkeypatch):
+    def ref(x):
+        raise AssertionError("the reference was evaluated with no backend to compare")
+
+    entry = survey.Entry("only_jax", ref, ("log", 1e-300, 1e300), jax="numpy.sqrt")
+    monkeypatch.setattr(survey, "REGISTRY", [entry])
+    assert survey.survey(backends=("numpy", "torch", "scipy"), points=8) == []
 
 
 def test_survey_is_silent_at_the_edge_values_of_the_grid():

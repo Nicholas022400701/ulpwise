@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `ulpwise survey` without scipy installed died at `ndtri` with a `ModuleNotFoundError` and lost every
+  row computed before it: the reference started its Newton iteration from `scipy.special.ndtri`. It now
+  starts from a bisection on `math.erfc`, returns an exact zero at `p = 0.5` (a Newton step there leaves a
+  rounding residual, which the ulp metric would read as 1e16 ulps against the exact 0.0 of torch and scipy)
+  and gives the same rows as before on the 600 point float64 and float32 grids. The survey also evaluates
+  the reference only when some requested backend implements the function; a numpy only run no longer
+  spends its time on references for the torch and scipy only entries. The pytest job on ubuntu, macOS and
+  windows (Python 3.12 and 3.9) runs `tests/test_survey.py` now, with numpy as the only backend.
 - `ulpwise survey` printed a numpy `RuntimeWarning` for every backend call that divided by zero or
   overflowed at the edge values of the grid (`reciprocal` and `log` at 0, `reciprocal` at the overflow
   edge), hundreds of lines on a full run. Those points are counted in the `nonfinite` column already, so

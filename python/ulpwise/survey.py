@@ -111,11 +111,21 @@ def _ref_ndtri(p):
     mp = _mp()
     if p <= 0 or p >= 1:
         return mp.mpf("-inf") if p == 0 else (mp.mpf("inf") if p == 1 else None)
-    # Newton on ncdf(x) = p starting from the double precision estimate; converges in a few steps.
-    from scipy.special import ndtri as _ndtri  # noqa: PLC0415
-
-    x = mp.mpf(float(_ndtri(float(p))))
-    for _ in range(6):
+    if p == 0.5:
+        return mp.mpf(0)  # exactly, the Newton step below would leave a rounding residual on an exact zero
+    if p > 0.5:
+        return -_ref_ndtri(1 - p)  # p is a double, so 1 - p is exact at the working precision
+    # Newton on ncdf(x) = p from the double precision root of 0.5 erfc(-x / sqrt 2) = p, found by bisection on
+    # [-40, 0] (ncdf(-40) is below the smallest double); from there the error squares at every step.
+    lo, hi = -40.0, 0.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if 0.5 * math.erfc(-mid / math.sqrt(2.0)) < p:
+            lo = mid
+        else:
+            hi = mid
+    x = mp.mpf(hi)
+    for _ in range(8):
         x = x - (mp.ncdf(x) - p) / mp.npdf(x)
     return x
 
@@ -553,13 +563,14 @@ def survey(
         for dtype in dtypes:
             npdt = DTYPES[dtype]
             xs = grid(entry.domain, dtype, points)
+            fns = [(backend, backend_callable(backend, entry, dtype)) for backend in backends]
+            fns = [(backend, fn) for backend, fn in fns if fn is not None]
+            if not fns:
+                continue  # no backend to compare, the reference would only cost time
             t0 = time.time()
             refs = [_mpf_ref(entry.ref, float(x)) for x in xs]
             tref = time.time() - t0
-            for backend in backends:
-                fn = backend_callable(backend, entry, dtype)
-                if fn is None:
-                    continue
+            for backend, fn in fns:
                 t1 = time.time()
                 try:
                     # the grid holds the edge values of the dtype, where the backends divide by zero or overflow
