@@ -562,7 +562,10 @@ def survey(
                     continue
                 t1 = time.time()
                 try:
-                    got = np.asarray(fn(xs))
+                    # the grid holds the edge values of the dtype, where the backends divide by zero or overflow
+                    # as they should; a non finite result is counted in nonfinite_mismatch, not reported as a warning
+                    with np.errstate(all="ignore"):
+                        got = np.asarray(fn(xs))
                 except Exception as ex:  # noqa: BLE001
                     if log:
                         print(f"{entry.name} {backend} {dtype}: error {ex}", file=log)
@@ -582,7 +585,8 @@ def survey(
                 vec_mismatch = default_fail = op_fail = None
                 op_rtol = op_atol = None
                 if backend == "torch":
-                    scalar = np.array([float(fn(xs[i : i + 1])[0]) for i in range(len(xs))], dtype=np.float64)
+                    with np.errstate(all="ignore"):
+                        scalar = np.array([float(fn(xs[i : i + 1])[0]) for i in range(len(xs))], dtype=np.float64)
                     g64 = got.astype(np.float64)
                     vec_mismatch = int(((scalar != g64) & ~(np.isnan(scalar) & np.isnan(g64))).sum())
                     refd = np.array([float(r) if (r is not None and not mp.isinf(r)) else np.nan for r in refs])

@@ -80,8 +80,7 @@ def test_every_reference_agrees_with_the_libraries_it_measures(entry):
     # on most of the grid, a right one is within a few even where a library has a bad point: on the 24 point
     # float64 grid the worst median is torch's polygamma_1 at 9 ulp, log2 with a natural log reference is 3e15.
     backends = [b for b in ("torch", "numpy", "scipy") if _has(b)]
-    with np.errstate(all="ignore"):  # numpy's reciprocal warns at 0 and at the overflow edge of the grid
-        results = survey.survey(backends=backends, dtypes=("f64",), points=24, functions=[entry.name])
+    results = survey.survey(backends=backends, dtypes=("f64",), points=24, functions=[entry.name])
     if not results:
         pytest.skip(f"{entry.name} is not implemented by any of {backends}")
     for r in results:
@@ -197,6 +196,19 @@ def test_survey_measures_sqrt_in_numpy_and_torch(monkeypatch):
     text = log.getvalue()
     assert text.count("sqrt") == len(results)
     assert "nonfinite 0" in text
+
+
+def test_survey_is_silent_at_the_edge_values_of_the_grid():
+    # the grid ends at 0 and at the overflow edge of the dtype, where numpy's reciprocal and log warn about a
+    # division by zero and an overflow; the survey counts those points as non finite and must not pass the
+    # warnings on, a 61 function run would otherwise print hundreds of them
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        results = survey.survey(backends=("numpy",), dtypes=("f32", "f64"), points=16, functions=["reciprocal", "log"])
+    assert {(r.function, r.dtype) for r in results} == {(f, d) for f in ("reciprocal", "log") for d in ("f32", "f64")}
+    assert all(r.nonfinite_mismatch == 0 for r in results if r.function == "log")  # log(0) = -inf on both sides
 
 
 def test_survey_measures_an_inexact_backend_and_filters_by_function_name(monkeypatch):

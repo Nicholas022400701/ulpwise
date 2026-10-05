@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `ulpwise survey` printed a numpy `RuntimeWarning` for every backend call that divided by zero or
+  overflowed at the edge values of the grid (`reciprocal` and `log` at 0, `reciprocal` at the overflow
+  edge), hundreds of lines on a full run. Those points are counted in the `nonfinite` column already, so
+  the survey now evaluates the backends under `np.errstate(all="ignore")`, and a test runs `reciprocal` and
+  `log` with warnings turned into errors.
 - The README said that two kornia fixes in the corpus were merged but not released; the corpus has 31
   kornia cases now, and the pytorch/rl, peft and pytorch (#198006) fixes are in the same state (kornia
   0.8.3 and 0.9.0rc1, torchrl 0.14.0, peft 0.21.2 and torch 2.14.1 predate them or cherry-pick other
