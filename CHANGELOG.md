@@ -12,7 +12,14 @@
   `(B, B, 2)`), `solve_cubic` of `1e-30 x^3 + 2x - 6` (#5024, roots `[0, 0, 0]` for 3),
   `RgbToGrayscale` on uint8 (#5111, all zeros), `conv_soft_argmax2d` with a far-away peak (#5134,
   the weak window's coordinates moved from 0.8834 to 1.0) and `get_gaussian_discrete_kernel1d(1,
-  sigma)` (#5376, 3 taps). The whole kornia block of the corpus, 13 cases, reads `present` on 0.8.3.
+  sigma)` (#5376, 3 taps). Six more in the same shape: `Se3.exp`'s `d t / d omega` at the identity
+  (#4963, nan on 0.8.3, zero on main before the fix), `Quaternion.polar_angle`'s gradient at the
+  identity (#4981, nan), `decompose_essential_matrix` of a `(3, 3)` input (#4998, `(1, 3, 3)`),
+  `Hyperplane.through`'s gradients for orthogonal equal-length edges (#5058, nan),
+  `Vector3.normalized` of a float16 zero vector (#5084, NaN) and `otsu_threshold`'s mask below
+  zero (#5182, all False). The whole kornia block of the corpus, 19 cases, reads `present` on 0.8.3;
+  the mean_average_precision recall thresholds (#5101) were checked and left out because 0.8.3
+  already scores the exact-tenth case right.
 - CI runs the regression corpus every Monday (and on `workflow_dispatch`) with
   `ULPWISE_CORPUS_STRICT=1`, which turns an unexpected pass into a failure: a release fixed a case
   and `fixed_in_release` is stale. Push and pull request runs stay non strict. The corpus job also

@@ -596,6 +596,122 @@
     "type": "equal"
    },
    "before_fix": "3 taps [0.2358, 0.5283, 0.2358] for kernel_size=1 on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-4963-se3-exp-jacobian-at-identity",
+   "repo": "kornia/kornia",
+   "pr": 4963,
+   "merged_at": "2026-09-26T13:58:12Z",
+   "kind": "gradient",
+   "title": "Se3.exp at omega = 0 had a nan, then a zero, derivative of the translation with respect to omega",
+   "symptom": "On 0.8.3 autograd walked V(omega), whose sqrt has an unbounded derivative at 0, so d t / d omega was nan at the identity (kornia #4404). The identity fallback that replaced it copied upsilon straight into the translation, so the derivative became 0 (kornia #4953). The true value is -0.5 [upsilon]_x, the first order of V(omega) upsilon.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import Se3, So3\nv = torch.tensor([[1.0, 2.0, 3.0, 0.0, 0.0, 0.0]], dtype=torch.float64)  # upsilon = (1, 2, 3), omega = 0\njac = torch.autograd.functional.jacobian(lambda x: Se3.exp(x).matrix()[:, :3, 3], v)[0, :, 0, :]\nactual = jac[:, 3:].flatten().tolist()\nexpected = (-0.5 * So3.hat(v[0, :3])).flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "nine nan on kornia 0.8.3 (the sqrt inside V, kornia #4404), nine zeros on kornia main before the fix (the identity fallback, kornia #4953)"
+  },
+  {
+   "id": "kornia-4981-quaternion-polar-angle-gradient-identity",
+   "repo": "kornia/kornia",
+   "pr": 4981,
+   "merged_at": "2026-09-27T10:53:01Z",
+   "kind": "gradient",
+   "title": "Quaternion.polar_angle had a nan gradient at the identity",
+   "symptom": "polar_angle was acos(w / |q|), and acos has an infinite derivative at 1, so the gradient was nan at the identity and at every quaternion with a zero vector part; atan2(|v|, w) gives the zero subgradient there.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.quaternion import Quaternion\ndata = torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float64, requires_grad=True)\nq = Quaternion(data)\nq.polar_angle.sum().backward()\ngrad = data.grad if data.grad is not None else q.data.grad\nactual = grad.flatten().tolist()\nexpected = [0.0, 0.0, 0.0, 0.0]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[nan, nan, nan, nan] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-4998-decompose-essential-matrix-unbatched",
+   "repo": "kornia/kornia",
+   "pr": 4998,
+   "merged_at": "2026-09-27T14:25:53Z",
+   "kind": "shape",
+   "title": "decompose_essential_matrix added a batch dimension to a (3, 3) input",
+   "symptom": "A single essential matrix came back as (1, 3, 3) rotations and a (1, 3, 1) translation instead of keeping the leading dims of the input, so unbatched callers had to squeeze.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.epipolar import decompose_essential_matrix\nE = torch.tensor([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])  # [t]_x with t = e_z and R = I\nR1, R2, t = decompose_essential_matrix(E)\nactual = [list(R1.shape), list(R2.shape), list(t.shape)]\nexpected = [[3, 3], [3, 3], [3, 1]]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[[1, 3, 3], [1, 3, 3], [3, 1]] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5058-hyperplane-through-orthogonal-gradient",
+   "repo": "kornia/kornia",
+   "pr": 5058,
+   "merged_at": "2026-09-29T13:14:18Z",
+   "kind": "gradient",
+   "title": "Hyperplane.through had nan gradients when p1 - p0 and p2 - p0 were orthogonal and of equal length",
+   "symptom": "The SVD fallback ran on every row and torch.where only zeroed its gradient; when the two edges are orthogonal and of equal length the substituted matrix has repeated singular values, the SVD gradient is inf and 0 * inf turned every input gradient into nan although the normal itself came from the cross product.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.plane import Hyperplane\npoints = [torch.tensor([p], dtype=torch.float64, requires_grad=True) for p in ([0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0])]\nplane = Hyperplane.through(*points)\nplane.normal.data.sum().backward()\nactual = [bool(torch.isfinite(p.grad).all()) for p in points] + plane.normal.data.flatten().abs().tolist()\nexpected = [True, True, True, 0.0, 0.0, 1.0]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[False, False, False, 0.0, 0.0, 1.0] on kornia 0.8.3: the normal is right and all three input gradients are nan"
+  },
+  {
+   "id": "kornia-5084-float16-zero-vector-normalized",
+   "repo": "kornia/kornia",
+   "pr": 5084,
+   "merged_at": "2026-09-29T14:21:28Z",
+   "kind": "dtype",
+   "title": "Vector3.normalized turned a float16 zero vector into NaN",
+   "symptom": "The default eps=1e-12 rounds to 0 in float16, so the zero vector was divided by max(0, 0) = 0 and came back NaN; the fix floors eps at the float16 subnormal and sends a zero row down its own arm.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.vector import Vector3\nactual = Vector3(torch.zeros(1, 3, dtype=torch.float16)).normalized().data.flatten().tolist()\nexpected = [0.0, 0.0, 0.0]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[nan, nan, nan] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5182-otsu-mask-below-zero",
+   "repo": "kornia/kornia",
+   "pr": 5182,
+   "merged_at": "2026-10-01T09:31:07Z",
+   "kind": "sign",
+   "title": "otsu_threshold's return_mask compared the thresholded image with 0 instead of returning x > threshold",
+   "symptom": "The mask was result > 0 on the already thresholded image, so a kept pixel with a value at or below 0 was reported as dropped: an image of -4, -3, -2, -1 has its Otsu threshold between -3 and -2 and the mask came back all False.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.filters import otsu_threshold\nx = torch.tensor([[[[-4.0, -3.0], [-2.0, -1.0]]]])\nmask, threshold = otsu_threshold(x, return_mask=True)\nactual = mask.flatten().tolist()\nexpected = [False, False, True, True]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[False, False, False, False] on kornia 0.8.3"
   }
  ]
 }

@@ -161,6 +161,12 @@ is how the weekly scheduled run of this repository notices that a release fixed 
 | kornia #5111 `RgbToGrayscale` turned a uint8 image into zeros | dtype | 2026-09-30 |
 | kornia #5134 `conv_soft_argmax2d` shifted every window's exponent by the maximum of the whole map | normalisation | 2026-09-30 |
 | kornia #5376 `get_gaussian_discrete_kernel1d(1, sigma)` returned 3 taps | shape | 2026-10-03 |
+| kornia #4963 `Se3.exp` at `omega = 0`: `d t / d omega` was nan, then zero, instead of `-0.5 [upsilon]_x` | gradient | 2026-09-26 |
+| kornia #4981 `Quaternion.polar_angle` had a nan gradient at the identity | gradient | 2026-09-27 |
+| kornia #4998 `decompose_essential_matrix` added a batch dimension to a `(3, 3)` input | shape | 2026-09-27 |
+| kornia #5058 `Hyperplane.through` had nan gradients for orthogonal edges of equal length | gradient | 2026-09-29 |
+| kornia #5084 `Vector3.normalized` turned a float16 zero vector into NaN | dtype | 2026-09-29 |
+| kornia #5182 `otsu_threshold(return_mask=True)` compared the thresholded image with 0 | sign | 2026-10-01 |
 | pytorch #198448 `torch.sqrt` float64 not correctly rounded at 27 of 64 knife edges | rounding | open |
 | pytorch #198583 `bessel_j0/j1/y0/y1`, `airy_ai` float64 lose up to 12 digits (`p1evl` leading 1) | digits | open |
 | torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |
