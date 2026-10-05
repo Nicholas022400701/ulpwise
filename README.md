@@ -133,13 +133,13 @@ known to contain the fix, so the run tells you which bugs are present in your en
 `ulpwise corpus` does the same without pytest, one line per case with the installed version and
 `present`, `fixed` or `skipped`; `ulpwise corpus --repo pytorch --fail-if-present` is the CI gate
 form. `ULPWISE_CORPUS_STRICT=1 pytest tests/test_corpus.py` also fails on an unexpected pass, which
-is how the weekly scheduled run of this repository notices that a release fixed a case before
-`fixed_in_release` says so. To run the corpus against an older release without touching your
+is how the weekly scheduled run of this repository (and a manual `workflow_dispatch` run) notices
+that a release fixed a case before `fixed_in_release` says so. To run the corpus against an older release without touching your
 environment, side-install it and put it first on the path:
 
 ```sh
 pip install --no-deps --target /tmp/kornia-0.8.3 kornia==0.8.3
-PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 19 present, 0 fixed on kornia 0.8.3
+PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 25 present, 0 fixed on kornia 0.8.3
 ```
 
 | case | kind | merged |
@@ -173,6 +173,11 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 19 present, 0 fi
 | kornia #5058 `Hyperplane.through` had nan gradients for orthogonal edges of equal length | gradient | 2026-09-29 |
 | kornia #5084 `Vector3.normalized` turned a float16 zero vector into NaN | dtype | 2026-09-29 |
 | kornia #5182 `otsu_threshold(return_mask=True)` compared the thresholded image with 0 | sign | 2026-10-01 |
+| kornia #4972 the Hessian of `So3.exp` at the identity was nan (issue #4966) | gradient | 2026-09-27 |
+| kornia #5116 `sampson_epipolar_distance` scored an exact match `sqrt(eps)` and changed with the scale of `F` (issue #4881) | eps, scale | 2026-09-30 |
+| kornia #5131 `RandomHue` shifted a float64 image by the float32 pi, 8.7e-8 past a half turn (issue #5127) | constant | 2026-09-30 |
+| kornia #5143 `MS_SSIMLoss` built an even window for sigma 1.3 and lost a row and a column (issue #5126) | shape | 2026-10-01 |
+| kornia #5353 `MS_SSIMLoss` raised on a uint8 image (issue #5351) | crash | 2026-10-02 |
 | pytorch #198448 `torch.sqrt` float64 not correctly rounded at 27 of 64 knife edges | rounding | open |
 | pytorch #198583 `bessel_j0/j1/y0/y1`, `airy_ai` float64 lose up to 12 digits (`p1evl` leading 1) | digits | open |
 | torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |

@@ -52,8 +52,9 @@ jobs:
     name: regression corpus (ubuntu, torch cpu)
     runs-on: ubuntu-latest
     env:
-      # On the weekly run an unexpected pass is a failure: a release fixed a case, update cases.json.
-      ULPWISE_CORPUS_STRICT: ${{ github.event_name == 'schedule' && '1' || '0' }}
+      # On the weekly and the manual runs an unexpected pass is a failure: a release fixed a case,
+      # update cases.json. Push and pull request runs stay lenient.
+      ULPWISE_CORPUS_STRICT: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

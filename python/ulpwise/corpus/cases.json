@@ -712,6 +712,128 @@
     "type": "equal"
    },
    "before_fix": "[False, False, False, False] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5126-ms-ssim-even-window-shape",
+   "repo": "kornia/kornia",
+   "pr": 5143,
+   "merged_at": "2026-10-01T14:53:52Z",
+   "kind": "shape",
+   "title": "MS_SSIMLoss built an even Gaussian window for sigma 1.3 and lost a row and a column",
+   "symptom": "The window was int(4 * sigma + 1) pixels wide, 6 for sigma 1.3, so it sat half a pixel off centre and the reduction=\"none\" map came out (N, H - 1, W - 1); the window is now 2 * int(2 * sigma) + 1, odd and centred, and the map keeps the input shape.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.losses import MS_SSIMLoss\ntorch.manual_seed(0)\nimg1 = torch.rand(1, 3, 16, 20)\nimg2 = torch.rand(1, 3, 16, 20)\nactual = list(MS_SSIMLoss(sigmas=(0.5, 1.3), reduction=\"none\")(img1, img2).shape)\nexpected = [1, 16, 20]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[1, 15, 19] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-4881-sampson-exact-match-sqrt-eps",
+   "repo": "kornia/kornia",
+   "pr": 5116,
+   "merged_at": "2026-09-30T09:24:07Z",
+   "kind": "eps",
+   "title": "sampson_epipolar_distance scored an exact epipolar match sqrt(eps) instead of 0",
+   "symptom": "eps was added inside the square root and the denominators, so a point exactly on its epiline scored sqrt(1e-8) = 1e-4 with squared=False and the value changed with the scale of F; the singular cases are now guarded and the eps parameter has no effect.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.epipolar import sampson_epipolar_distance\nF = torch.tensor([[[0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]])  # a pure horizontal shift: the epiline of (x, y) is y' = y\npts1 = torch.zeros(1, 1, 2)\npts2 = torch.tensor([[[2.0, 0.0]]])  # on its epiline\nactual = sampson_epipolar_distance(pts1, pts2, F, squared=False).item()\nexpected = 0.0\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "9.999999747378752e-05 on kornia 0.8.3, sqrt(eps) for eps = 1e-8"
+  },
+  {
+   "id": "kornia-4881-sampson-scale-of-F",
+   "repo": "kornia/kornia",
+   "pr": 5116,
+   "merged_at": "2026-09-30T09:24:07Z",
+   "kind": "scale",
+   "title": "sampson_epipolar_distance changed with the scale of the fundamental matrix",
+   "symptom": "The Sampson distance is a ratio that cancels the scale of F, but eps was added to its denominator, so the same F scaled down by 1e-4 scored about a third lower; the ratio of the two is now 1.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.epipolar import sampson_epipolar_distance\nF = torch.tensor([[[0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]])  # a pure horizontal shift: the epiline of (x, y) is y' = y\npts1 = torch.zeros(1, 1, 2)\npts2 = torch.tensor([[[2.0, 1.0]]])  # one pixel off its epiline\nactual = (sampson_epipolar_distance(pts1, pts2, 1e-4 * F) / sampson_epipolar_distance(pts1, pts2, F)).item()\nexpected = 1.0\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 1e-06
+   },
+   "before_fix": "0.6666666 on kornia 0.8.3: the denominator of the 1e-4 F is 2e-8 and eps = 1e-8 adds half of it"
+  },
+  {
+   "id": "kornia-5127-random-hue-float64-half-turn",
+   "repo": "kornia/kornia",
+   "pr": 5131,
+   "merged_at": "2026-09-30T12:48:20Z",
+   "kind": "constant",
+   "title": "RandomHue shifted a float64 image by the float32 pi, 8.7e-8 past a half turn",
+   "symptom": "The hue step multiplied by kornia.constants.pi, a float32 tensor, so a float64 hue shift of 0.5 landed 8.7e-8 rad past pi instead of on it; the forward arithmetic now uses math.pi and float64 keeps its digits.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nimport kornia\nfrom kornia.augmentation import RandomHue\ntorch.manual_seed(0)\nimage = torch.rand(1, 3, 4, 4, dtype=torch.float64)\nhue = kornia.color.rgb_to_hsv(image)[:, 0]\nshifted = kornia.color.rgb_to_hsv(RandomHue(hue=(0.5, 0.5), p=1.0)(image))[:, 0]\nactual = (torch.remainder(shifted - hue, 2 * torch.pi) - torch.pi).abs().max().item()  # circular distance from a half turn\nexpected = 0.0\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "8.742278145845717e-08 on kornia 0.8.3, the float32 rounding error of pi"
+  },
+  {
+   "id": "kornia-4966-so3-exp-hessian-at-identity",
+   "repo": "kornia/kornia",
+   "pr": 4972,
+   "merged_at": "2026-09-27T10:28:23Z",
+   "kind": "gradient",
+   "title": "The Hessian of So3.exp at the identity was nan",
+   "symptom": "exp evaluated cos(theta / 2) on theta = |v|, which has no second derivative at v = 0, so the Hessian there was nan although the value and gradient were finite; below 0.5 rad both quaternion coefficients are now series in theta**2 = v . v, and the Hessian of the real part at the identity is -I / 4.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import So3\nzero = torch.zeros(3, dtype=torch.float64)\nactual = torch.autograd.functional.hessian(lambda v: So3.exp(v).q.data[0], zero).flatten().tolist()\nexpected = (-0.25 * torch.eye(3, dtype=torch.float64)).flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-12,
+    "rtol": 0.0
+   },
+   "before_fix": "nine nan on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5351-ms-ssim-uint8-image",
+   "repo": "kornia/kornia",
+   "pr": 5353,
+   "merged_at": "2026-10-02T14:58:52Z",
+   "kind": "crash",
+   "title": "MS_SSIMLoss raised on a uint8 image instead of computing it in the mask dtype",
+   "symptom": "An integer image reached F.conv2d with a dtype that did not match the float32 Gaussian masks and raised torch's \"expected scalar type Byte but found Float\"; integer and bool images are now computed in the mask dtype, and with data_range=255 a uint8 pair scores the same as the pair divided by 255 at the default data_range.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.losses import MS_SSIMLoss\ntorch.manual_seed(0)\nimg1 = torch.randint(0, 256, (1, 1, 48, 40), dtype=torch.uint8)\nimg2 = torch.randint(0, 256, (1, 1, 48, 40), dtype=torch.uint8)\nactual = MS_SSIMLoss(data_range=255.0)(img1, img2).item()\nexpected = MS_SSIMLoss()(img1.float() / 255, img2.float() / 255).item()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.0,
+    "rtol": 1e-06
+   },
+   "before_fix": "RuntimeError: expected scalar type Byte but found Float on kornia 0.8.3"
   }
  ]
 }

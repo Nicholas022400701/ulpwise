@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Six more kornia cases, each present on kornia 0.8.3 and fixed on main: the Hessian of `So3.exp`
+  at the identity (#4972, nine nan for `-I / 4` and zeros), `sampson_epipolar_distance` of a point on
+  its epiline with `squared=False` (#5116, `sqrt(eps)` = 1e-4 for 0) and of the same `F` scaled by
+  1e-4 (#5116, a third lower), `RandomHue` on a float64 image (#5131, 8.7e-8 rad past a half turn,
+  the float32 rounding error of pi), `MS_SSIMLoss(sigmas=(0.5, 1.3), reduction="none")` (#5143, an
+  even 6-pixel window and a `(1, 15, 19)` map for a `(1, 3, 16, 20)` input) and `MS_SSIMLoss` on a
+  uint8 pair (#5353, `expected scalar type Byte but found Float`; with `data_range=255` it now scores
+  the pair divided by 255 at the default to 1e-6). The kornia block is 25 cases, all `present` on
+  0.8.3, and the corpus 41.
+- The manual `workflow_dispatch` run of CI is now strict about the corpus like the Monday run (the
+  changelog said so already, the workflow set the variable for `schedule` only).
 - The release workflow's manual dry run (`workflow_dispatch` without `publish`) now ends in a
   `collect` job that downloads the artifacts the way the publish job does and checks that there
   are five wheels and one sdist, so a dry run covers the whole pipeline short of the upload. The
