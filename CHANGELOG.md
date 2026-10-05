@@ -16,7 +16,9 @@
   per-sample kernel on a channels-last image (#5301, torch's view error), `lovasz_hinge_loss` of a
   float16 prediction (#5303, a float32 loss) and `get_box_kernel1d` (#5357, a stride-0 view where
   one write zeroed all three taps). The kornia block is 31 cases, all `present` on 0.8.3 and all
-  `fixed` on main, and the corpus 47.
+  `fixed` on main. One more ultralytics case, `scale_masks` with the dataloader's `ratio_pad` and an
+  odd letterbox padding (#26379, a padded row survived the crop and the bottom rows of every mask
+  faded to 0; `fixed_in_release` 8.4.165, the first tag with the fix). The corpus is 48 cases.
 - The manual `workflow_dispatch` run of CI is now strict about the corpus like the Monday run (the
   changelog said so already, the workflow set the variable for `schedule` only).
 - The release workflow's manual dry run (`workflow_dispatch` without `publish`) now ends in a

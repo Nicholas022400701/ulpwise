@@ -956,6 +956,27 @@
     "rtol": 0.0
    },
    "before_fix": "[0.0, 0.0, 0.0] on kornia 0.8.3"
+  },
+  {
+   "id": "ultralytics-26379-scale-masks-odd-letterbox-pad",
+   "repo": "ultralytics/ultralytics",
+   "pr": 26379,
+   "merged_at": "2026-09-28T19:11:49Z",
+   "kind": "rounding",
+   "title": "scale_masks kept a padded row when the letterbox padding was odd",
+   "symptom": "With the dataloader's ratio_pad the crop ended at im1_h - round(pad_h + 0.1), which for an odd total padding (19 rows: 9 above, 10 below) stops one row short of the padding, so a padded zero row was interpolated into the original image and the bottom rows of every mask faded to 0; the crop now ends where the letterbox content ends, top + round(im0_h * gain_h).",
+   "requires": [
+    "torch",
+    "ultralytics"
+   ],
+   "fixed_in_release": "8.4.165",
+   "repro": "import torch\nfrom ultralytics.utils import ops\nh, w = 333, 640  # a 1000x1920 image letterboxed into 352x640: 19 rows of padding, 9 above the content and 10 below\nmasks = torch.zeros(1, 1, 352, 640)\nmasks[..., 9:9 + h, :] = 1.0  # content 1, padding 0\nscaled = ops.scale_masks(masks, (1000, 1920), ratio_pad=((h / 1000, w / 1920), (0, 9)))\nactual = scaled.min().item()  # every pixel of the original image is content\nexpected = 1.0\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-06,
+    "rtol": 0.0
+   },
+   "before_fix": "0.0 on ultralytics 8.4.163: the last four rows of the 1000 fade from 1 to 0, 7680 pixels below 1"
   }
  ]
 }

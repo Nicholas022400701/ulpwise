@@ -157,6 +157,7 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 | timm #2792 Kron `__setstate__` shadowed | crash | 2026-09-18 |
 | peft #3777 pointwise Conv3d took the conv2d 1x1 shortcut | shape | 2026-09-21 |
 | ultralytics #26330 OBB train and val on plain box labels crashed in the validator or the loss instead of at load time | crash | 2026-09-25 |
+| ultralytics #26379 `scale_masks` kept a padded row when the letterbox padding was odd, the bottom of every mask faded to 0 | rounding | 2026-09-28 |
 | kornia #4941 `So3.log`, the `So3` Jacobians and `Se3.exp/log` lost all digits for small angles (issue #4897) | series | 2026-09-26 |
 | kornia #5124 `axis_angle_to_rotation_matrix` dropped the `theta^2` terms below 1e-3 rad (issue #4838) | series | 2026-09-30 |
 | kornia #4960 `Se2.exp` and `Se2.log` lost the translation at small angles | cancellation | 2026-09-26 |
@@ -193,7 +194,7 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet. Every case
 is an expected failure until the installed release contains the fix (`fixed_in_release` in
 `cases.json`; the two kornia fixes above are merged but not released yet), and the `max_ulp` check
-type measures the digits directly. The ultralytics case builds its one-image dataset
+type measures the digits directly. The ultralytics dataset case builds its one-image dataset
 in a temporary directory and needs no weights; two more ultralytics fixes (#26240, #26246) are not in
 the corpus yet because their repros need model weights or the COCO evaluator.
 
