@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Two regression corpus cases for pytorch #199850: `torch.erf` in bfloat16 and float16 on CPU returns 0 at and
+  below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps at worst), found with
+  the half precision rows of `ulpwise survey --functions erf --backends torch --dtypes f16,bf16`.
+
 ## 0.3.1 (2026-10-05)
 
 - `ulpwise survey` takes `f16` and `bf16` in `--dtypes` (the default stays `f32,f64`): torch and jax get half

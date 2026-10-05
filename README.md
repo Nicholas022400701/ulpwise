@@ -197,6 +197,7 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 | torchvision #9676 `clamp_bounding_boxes` collapses slightly tilted rotated boxes to a point | geometry | open |
 | pytorch #198663 `polygamma(1, x)` float64 keeps 9 digits (series stops at `1/42`), float32 loses all for large negative `x` | truncation, rounding | open |
 | pytorch #198664 `erfcx` off by `x*x/2` ulps for negative `x` (`exp` at the rounded square) | rounding | open |
+| pytorch #199850 `torch.erf` in bfloat16 and float16 on CPU returns 0 at and below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps) | cancellation | open |
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet. Every case
 is an expected failure until the installed release contains the fix (`fixed_in_release` in

@@ -1019,6 +1019,48 @@
     "rtol": 0.0
    },
    "before_fix": "[1] on ultralytics 8.4.163: nc = 1 and no labels, \"ignoring corrupt image/label: non-normalized or out of bounds coordinates [1.15 1.15 ...]\""
+  },
+  {
+   "id": "pytorch-199850-erf-bfloat16-small-arguments",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 199850,
+   "merged_at": null,
+   "kind": "cancellation",
+   "title": "torch.erf in bfloat16 on CPU returns 0 for |x| <= 1.8e-7 and loses relative accuracy below 1e-3",
+   "symptom": "bfloat16 and float16 erf go through Vectorized<float>::erf(), the Abramowitz and Stegun 7.1.26 formula 1 - r * t * exp(-x * x), whose absolute error is 1.5e-7; below |x| = 1e-3 that error is a visible fraction of erf(x) ~ 1.128 x and below 1.5e-7 the 1 - 1 rounds to exactly 0. Of the 16128 bfloat16 inputs in (0, 0.5], 14102 are more than 1 ulp off, 13379 return 0, the worst is 13404 ulp. The MKL float32 and float64 paths are correct; float32 without MKL and under torch.compile takes the same code (issue #198183). The patch adds a Taylor series branch for |x| < 0.5 (Draft PR #199851).",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nxs = torch.tensor([1e-7, 5e-7, 1e-6, 1e-5], dtype=torch.bfloat16)\nactual = torch.erf(xs).tolist()\n# erf at the bfloat16 inputs in float64, rounded to bfloat16\nexpected = [1.1315569281578064e-07, 5.62518835067749e-07, 1.125037670135498e-06, 1.1324882507324219e-05]\n",
+   "check": {
+    "type": "max_ulp",
+    "dtype": "bf16",
+    "max_ulp": 1
+   },
+   "before_fix": "[0.0, 4.172325134277344e-07, 1.1920928955078125e-06, 1.1563301086425781e-05] on torch 2.14.0 (13299, 55, 9 and 4 ulp)"
+  },
+  {
+   "id": "pytorch-199850-erf-float16-small-arguments",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 199850,
+   "merged_at": null,
+   "kind": "cancellation",
+   "title": "torch.erf in float16 on CPU returns 0 for |x| <= 1.8e-7 and is up to 5 ulp off below 1e-3",
+   "symptom": "Same Vectorized<float>::erf() path as the bfloat16 case; float16 has three more bits, so the 1.5e-7 absolute error shows as 1240 of the 14336 inputs in (0, 0.5] more than 1 ulp off, at most 5 ulp, and the three inputs at or below 1.8e-7 return 0.",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nxs = torch.tensor([1e-7, 5e-7, 1e-6, 1e-5], dtype=torch.float16)\nactual = torch.erf(xs).tolist()\n# erf at the float16 inputs in float64, rounded to float16\nexpected = [1.1920928955078125e-07, 5.364418029785156e-07, 1.1324882507324219e-06, 1.1324882507324219e-05]\n",
+   "check": {
+    "type": "max_ulp",
+    "dtype": "f16",
+    "max_ulp": 1
+   },
+   "before_fix": "[0.0, 4.172325134277344e-07, 1.1920928955078125e-06, 1.1563301086425781e-05] on torch 2.14.0 (2, 2, 1 and 4 ulp)"
   }
  ]
 }
