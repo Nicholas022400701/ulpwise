@@ -1,6 +1,7 @@
 """``ulpwise scan``: every rule fires on the snippet written for it, the guarded variant stays quiet,
 test directories are skipped and the CLI exit code follows --fail-on."""
 
+import math
 import textwrap
 import warnings
 
@@ -209,3 +210,53 @@ def test_run_measures_float32_against_float64(tmp_path, capsys):
     report = tmp_path / "scan.md"
     assert main(["scan", str(tmp_path), "--run", "--run-limit", "3", "--report", str(report)]) == 0
     assert "| at scale | elementwise |" in report.read_text() and "3 functions tried" in report.read_text()
+
+
+def test_module_name_drops_the_source_root_and_init_and_reads_windows_paths(monkeypatch):
+    assert scan._module_name("a/b/c.py") == "a.b.c"
+    assert scan._module_name("src/pkg/mod.py") == "pkg.mod"
+    assert scan._module_name("python/pkg/__init__.py") == "pkg"
+    assert scan._module_name("lib/x.py") == "x"
+    assert scan._module_name("src/__init__.py") == "src"
+    monkeypatch.setattr(scan.os, "sep", "\\")
+    assert scan._module_name("src\\pkg\\mod.py") == "pkg.mod"
+
+
+def test_run_reports_why_a_function_did_not_run(tmp_path):
+    import types
+
+    module = types.ModuleType("fake")
+    module.const = 3.0
+    module.K = type("K", (), {"bound": lambda self, x: x, "static": staticmethod(lambda x: x)})
+    module.m = max  # a builtin with several signatures
+    module.f = lambda x: x
+    assert scan._resolve(module, "const") == (None, "not callable")
+    assert scan._resolve(module, "K") == (None, "a class")
+    assert scan._resolve(module, "m") == (None, "no signature")
+    assert scan._resolve(module, "f.inner") == (None, "nested function or not importable by name")
+    assert scan._resolve(module, "K.bound") == (None, "instance method")
+    assert scan._resolve(module, "K.static")[1] is None and scan._resolve(module, "f")[0] is module.f
+
+    pkg = tmp_path / "boompkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ops.py").write_text("import math\nraise ImportError('no')\n\n\ndef f(x):\n    return math.exp(x * x)\n")
+    _, spots, _ = scan.scan_tree(str(tmp_path))
+    assert [s.function for s in spots] == ["f"] and spots[0].path == "boompkg/ops.py"
+    (result,) = scan.run_functions(str(tmp_path), spots)
+    assert result.status == "import failed: ImportError"
+    assert "1 functions tried, 0 ran, 1 skipped" in scan.render_run([result])
+
+
+def test_compare_measures_finite_pairs_and_gives_no_scale_across_a_non_finite_mismatch():
+    inf, nan = math.inf, math.nan
+    assert scan._compare([1.0, 2.0], [1.0, 2.0]) == (0, 0, 0.0)
+    worst, i, at_scale = scan._compare([1.0, 2.0 + 2.0 ** -22], [1.0, 2.0])
+    assert (worst, i) == (1, 1) and at_scale == pytest.approx(1.0)
+    assert scan._compare([inf, 1.0], [inf, 1.0]) == (0, 0, 0.0)  # the same infinity on both sides is agreement
+    assert scan._compare([nan, 1.0], [nan, 1.0])[2] == 0.0
+    assert scan._compare([inf, 1.0], [1.0, 1.0])[2] is None  # finite on one side only
+    assert scan._compare([inf], [-inf])[2] is None  # different infinities
+    assert scan._compare([0.0, 0.0], [0.0, 0.0])[2] == 0.0
+    assert scan._compare([0.0, 1e-30], [0.0, 0.0])[2] == inf  # an error against an all zero reference
+    assert scan._compare([1.0, 0.0], [1.0, 2.0 ** -30])[2] == pytest.approx(2.0 ** -30 / 2.0 ** -23)

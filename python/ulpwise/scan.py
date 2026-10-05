@@ -361,7 +361,7 @@ def scan_tree(root: str, include_tests: bool = False) -> Tuple[List[Finding], Li
                 source = fh.read()
         except OSError:
             continue
-        f, s = scan_source(source, os.path.relpath(path, root))
+        f, s = scan_source(source, os.path.relpath(path, root).replace(os.sep, "/"))
         findings.extend(f)
         spots.extend(s)
     findings.sort(key=lambda f: (SEVERITY_ORDER[f.severity], f.rule, f.path, f.line))
@@ -455,7 +455,7 @@ def _compare(out32: Sequence[float], ref32: Sequence[float]) -> Tuple[Optional[i
 
 
 def _module_name(rel_path: str) -> str:
-    parts = rel_path[:-3].split(os.sep)
+    parts = rel_path[:-3].replace(os.sep, "/").split("/")
     if parts[-1] == "__init__":
         parts = parts[:-1]
     while len(parts) > 1 and parts[0] in ("src", "python", "lib"):

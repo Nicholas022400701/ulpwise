@@ -44,7 +44,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install pytest numpy packaging mpmath
       - run: pip install .
-      - run: pytest tests/test_core.py tests/test_survey.py -q -p no:cacheprovider
+      - run: pytest tests/test_core.py tests/test_survey.py tests/test_scan.py -q -p no:cacheprovider
       - name: sqrt conformance of numpy on this platform
         run: python examples/torch_sqrt_conformance.py && python examples/sqrt_knife_values.py
 

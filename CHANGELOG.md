@@ -9,6 +9,13 @@
 - `ulpwise scan` printed a `SyntaxWarning` (a `DeprecationWarning` before Python 3.12) for every invalid
   escape sequence in the files it scanned, four lines on kornia. The parse now ignores those warnings;
   a file that does not parse is skipped as before.
+- `ulpwise scan` reported Windows paths with backslashes (`kornia\geometry\conversions.py`), so the same
+  report read differently from the one made on Linux or macOS. Paths are now written with forward
+  slashes on every platform; `--run` still imports the module from either form. The CI pytest job on
+  ubuntu, macOS and windows runs `tests/test_scan.py` now, and that file also covers the reasons
+  `--run` gives for a function it does not run (a class, a constant, an instance method, a builtin
+  without a signature, a nested name, a module that fails to import) and the ulp comparison of the
+  results across infinities, NaNs and an all zero reference.
 - `ulpwise survey` without scipy installed died at `ndtri` with a `ModuleNotFoundError` and lost every
   row computed before it: the reference started its Newton iteration from `scipy.special.ndtri`. It now
   starts from a bisection on `math.erfc`, returns an exact zero at `p = 0.5` (a Newton step there leaves a
