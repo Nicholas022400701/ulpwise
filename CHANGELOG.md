@@ -5,6 +5,14 @@
 - Two regression corpus cases for pytorch #199850: `torch.erf` in bfloat16 and float16 on CPU returns 0 at and
   below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps at worst), found with
   the half precision rows of `ulpwise survey --functions erf --backends torch --dtypes f16,bf16`.
+- `ulpwise survey`: the `polygamma_1` and `polygamma_2` references at a non positive integer are now the signed
+  infinity of the pole, `+inf` for an odd order (the limit from both sides) and `-inf` for an even one (the sign of
+  `(-1) ** (n + 1) * n! * zeta(n + 1, x)`, which is what scipy, torch and jax return), instead of a domain error
+  that expected `nan`. The f16 and bf16 grids reach the integers from 2048 and 256 up, so every negative point
+  past there was a pole and counted as a nonfinite mismatch: on torch 2.14 the two functions had 354 of 3546
+  float16 points and 492 of 4016 bfloat16 points each, `polygamma_2` has 0 now in every dtype and `polygamma_1`
+  keeps 491 bfloat16, 4 float32 and 2 float16 points where torch returns a large finite value instead of `inf`
+  at a negative integer (pytorch #198663).
 
 ## 0.3.1 (2026-10-05)
 

@@ -217,6 +217,9 @@ def test_every_reference_agrees_with_the_libraries_it_measures(entry):
         ("lgamma", -2.0, math.inf),
         ("lgamma", -2.5, "torch"),
         ("digamma", -2.0, None),  # torch returns nan at the poles
+        ("polygamma_1", -2.0, math.inf),  # the pole of an odd order is +inf from both sides
+        ("polygamma_1", 0.0, math.inf),
+        ("polygamma_2", -2.0, -math.inf),  # an even order takes the sign of its formula, as scipy, torch and jax do
         ("erfinv", 1.0, math.inf),
         ("erfinv", -1.0, -math.inf),
         ("ndtri", 0.0, -math.inf),

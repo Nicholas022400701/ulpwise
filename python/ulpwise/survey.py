@@ -230,7 +230,9 @@ def _ref_polygamma(n):
     def f(x):
         mp = _mp()
         if x <= 0 and x == mp.floor(x):
-            return None
+            # the pole: +inf from both sides for an odd n; for an even n the two sides disagree and the reference
+            # is the sign of (-1) ** (n + 1) * n! * zeta(n + 1, x), which is what scipy, torch and jax return
+            return mp.mpf("inf") if n % 2 else mp.mpf("-inf")
         return mp.polygamma(n, x)
 
     return f
