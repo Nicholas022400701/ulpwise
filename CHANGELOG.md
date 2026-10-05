@@ -9,8 +9,14 @@
   the float32 rounding error of pi), `MS_SSIMLoss(sigmas=(0.5, 1.3), reduction="none")` (#5143, an
   even 6-pixel window and a `(1, 15, 19)` map for a `(1, 3, 16, 20)` input) and `MS_SSIMLoss` on a
   uint8 pair (#5353, `expected scalar type Byte but found Float`; with `data_range=255` it now scores
-  the pair divided by 255 at the default to 1e-6). The kornia block is 25 cases, all `present` on
-  0.8.3, and the corpus 41.
+  the pair divided by 255 at the default to 1e-6). Six more: `So3.right_jacobian` of a float16
+  45 rad rotation (#4967, the identity for a matrix of 0.2 to 0.4), `average_quaternions` with a member
+  stored as `3 q` (#4980, 41.8 degrees for the 22.5 degree bisector), `Hyperplane.through` a float16
+  triangle with legs of 300 (#5104, the normal `(0, 0, 1)` for `(0, 0, -1)`), `filter2d` with a
+  per-sample kernel on a channels-last image (#5301, torch's view error), `lovasz_hinge_loss` of a
+  float16 prediction (#5303, a float32 loss) and `get_box_kernel1d` (#5357, a stride-0 view where
+  one write zeroed all three taps). The kornia block is 31 cases, all `present` on 0.8.3 and all
+  `fixed` on main, and the corpus 47.
 - The manual `workflow_dispatch` run of CI is now strict about the corpus like the Monday run (the
   changelog said so already, the workflow set the variable for `schedule` only).
 - The release workflow's manual dry run (`workflow_dispatch` without `publish`) now ends in a

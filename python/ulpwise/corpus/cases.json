@@ -834,6 +834,128 @@
     "rtol": 1e-06
    },
    "before_fix": "RuntimeError: expected scalar type Byte but found Float on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-4965-so3-jacobian-float16-large-angle",
+   "repo": "kornia/kornia",
+   "pr": 4967,
+   "merged_at": "2026-09-26T14:54:41Z",
+   "kind": "overflow",
+   "title": "So3.right_jacobian in float16 was off by 0.79 above 41 rad",
+   "symptom": "The small-angle coefficients divided their closed forms by theta**3 and theta**2, which overflow float16 above 40.3 and 256 rad, so from 41 rad the [omega]_x^2 coefficient was 0 and the float16 Jacobians were off by up to 0.79; dividing by theta one factor at a time keeps them within about 2 float16 ulp of the float64 value.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.liegroup import So3\nomega = torch.tensor([[0.48, 0.6, 0.64]]) * 45.0  # 45 rad about a unit axis\nactual = So3.right_jacobian(omega.half()).flatten().tolist()\nexpected = So3.right_jacobian(omega.double()).flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.005,
+    "rtol": 0.005
+   },
+   "before_fix": "the identity to 0.007 on kornia 0.8.3 (1.0 on the diagonal for 0.245, 0.372 and 0.421)"
+  },
+  {
+   "id": "kornia-4974-average-quaternions-member-norm",
+   "repo": "kornia/kornia",
+   "pr": 4980,
+   "merged_at": "2026-09-27T11:24:54Z",
+   "kind": "normalisation",
+   "title": "average_quaternions counted a member stored as 3 q nine times",
+   "symptom": "The members were not normalised before averaging, so a member's squared norm acted as an extra weight: one stored as 3 q counted nine times and pulled the mean of the identity and a quarter turn from the bisector at 22.5 degrees to 41.8 degrees; the members are now normalised.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import math\nimport torch\nfrom kornia.geometry.quaternion import Quaternion, average_quaternions\nq1 = torch.tensor([1.0, 0.0, 0.0, 0.0])\nq2 = torch.tensor([1.0, 1.0, 0.0, 0.0]) / math.sqrt(2.0)  # a quarter turn about x\nmean = average_quaternions(Quaternion(torch.stack([q1, 3.0 * q2]))).data.flatten()\nactual = (mean * torch.sign(mean[0])).tolist()  # the sign of a quaternion is free\nexpected = [math.cos(math.pi / 8), math.sin(math.pi / 8), 0.0, 0.0]  # the bisector, an eighth of a turn\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-06,
+    "rtol": 0.0
+   },
+   "before_fix": "[0.7451, 0.6669, 0, 0] on kornia 0.8.3, 41.8 degrees instead of 22.5"
+  },
+  {
+   "id": "kornia-5104-hyperplane-through-float16-orientation",
+   "repo": "kornia/kornia",
+   "pr": 5104,
+   "merged_at": "2026-09-29T15:39:16Z",
+   "kind": "overflow",
+   "title": "Hyperplane.through flipped the normal of a large float16 triangle",
+   "symptom": "The cross product of the edges was taken in float16, where legs of 300 give 9e4 and overflow 65504, so the triangle fell through to the SVD fallback whose sign is arbitrary and the normal came back (0, 0, 1) instead of (0, 0, -1), flipping every signed distance; the edges and the cross product are now taken in float32 and cast back.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.geometry.plane import Hyperplane\nfrom kornia.geometry.vector import Vector3\np0 = Vector3(torch.tensor([0.0, 0.0, 0.0], dtype=torch.float16))\np1 = Vector3(torch.tensor([300.0, 0.0, 0.0], dtype=torch.float16))\np2 = Vector3(torch.tensor([0.0, 300.0, 0.0], dtype=torch.float16))\nactual = Hyperplane.through(p0, p1, p2).normal.data.flatten().tolist()\nexpected = [0.0, 0.0, -1.0]  # (p2 - p0) x (p1 - p0)\n",
+   "check": {
+    "type": "allclose",
+    "atol": 0.001,
+    "rtol": 0.0
+   },
+   "before_fix": "[0.0, 0.0, 1.0] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5292-filter2d-per-sample-kernel-channels-last",
+   "repo": "kornia/kornia",
+   "pr": 5301,
+   "merged_at": "2026-10-02T10:02:43Z",
+   "kind": "crash",
+   "title": "filter2d with one kernel per sample raised on a channels-last input",
+   "symptom": "The batch and channel axes were merged with view() for the grouped convolution, which a channels-last input cannot do without a copy, so torch raised \"view size is not compatible with input tensor's size and stride\"; the input is now reshaped, and the values equal those of the contiguous input.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.filters import filter2d\ntorch.manual_seed(0)\nimage = torch.rand(2, 3, 6, 6)\nkernel = torch.rand(2, 3, 3)  # one kernel per sample\nactual = (filter2d(image.to(memory_format=torch.channels_last), kernel) - filter2d(image, kernel)).abs().max().item()\nexpected = 0.0\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "RuntimeError: view size is not compatible with input tensor's size and stride on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5289-lovasz-hinge-loss-float16-dtype",
+   "repo": "kornia/kornia",
+   "pr": 5303,
+   "merged_at": "2026-10-02T09:50:14Z",
+   "kind": "dtype",
+   "title": "lovasz_hinge_loss returned a float32 loss for a float16 prediction",
+   "symptom": "The Jaccard weights took torch.get_default_dtype(), so a float16 or bfloat16 prediction returned a float32 loss and a float64 prediction had float32 rounding in its weights and gradient; the loss is now computed in the prediction dtype, float32 internally for half precision, and returned in the prediction dtype.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.losses import lovasz_hinge_loss\ntorch.manual_seed(0)\npred = torch.randn(2, 1, 4, 4)\ntarget = torch.randint(0, 2, (2, 4, 4))\nactual = [str(lovasz_hinge_loss(pred.half(), target).dtype), str(lovasz_hinge_loss(pred.double(), target).dtype)]\nexpected = [\"torch.float16\", \"torch.float64\"]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "['torch.float32', 'torch.float64'] on kornia 0.8.3"
+  },
+  {
+   "id": "kornia-5160-box-kernel-stride-zero-view",
+   "repo": "kornia/kornia",
+   "pr": 5357,
+   "merged_at": "2026-10-02T14:06:31Z",
+   "kind": "aliasing",
+   "title": "get_box_kernel1d returned a stride-0 view, so editing one tap rewrote them all",
+   "symptom": "The kernel was an expand() of a single value, so writing one tap changed every tap and writing more than one raised torch's \"more than one element of the written-to tensor refers to a single memory location\"; the functions now return an ordinary contiguous tensor.",
+   "requires": [
+    "torch",
+    "kornia"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom kornia.filters import get_box_kernel1d\nkernel = get_box_kernel1d(3)\nkernel[0, 0] = 0.0\nactual = kernel.flatten().tolist()\nexpected = [0.0, 1.0 / 3.0, 1.0 / 3.0]\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-07,
+    "rtol": 0.0
+   },
+   "before_fix": "[0.0, 0.0, 0.0] on kornia 0.8.3"
   }
  ]
 }
