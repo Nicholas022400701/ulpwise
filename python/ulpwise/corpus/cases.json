@@ -977,6 +977,26 @@
     "rtol": 0.0
    },
    "before_fix": "0.0 on ultralytics 8.4.163: the last four rows of the 1000 fade from 1 to 0, 7680 pixels below 1"
+  },
+  {
+   "id": "ultralytics-26377-duplicate-segments-by-box",
+   "repo": "ultralytics/ultralytics",
+   "pr": 26377,
+   "merged_at": "2026-09-28T19:14:17Z",
+   "kind": "aliasing",
+   "title": "verify_image_label dropped a polygon that shared its class and box with another",
+   "symptom": "Duplicate segment rows were detected on the class and the box only, so two different polygons with the same bounding box, two triangles tiling one square, were treated as one label and the second was dropped; the polygons themselves are now compared and only exact duplicate rows go.",
+   "requires": [
+    "cv2",
+    "numpy",
+    "ultralytics"
+   ],
+   "fixed_in_release": "8.4.165",
+   "repro": "import logging\nimport tempfile\nfrom pathlib import Path\nimport cv2\nimport numpy as np\nfrom ultralytics.data.utils import verify_image_label\nlogging.getLogger(\"ultralytics\").setLevel(logging.ERROR)\nroot = Path(tempfile.mkdtemp())\ncv2.imwrite(str(root / \"0.jpg\"), np.zeros((32, 32, 3), np.uint8))\n# two triangles that tile one square: the same class and bounding box, different polygons\n(root / \"0.txt\").write_text(\"0 0.2 0.2 0.8 0.2 0.8 0.8\\n0 0.2 0.2 0.2 0.8 0.8 0.8\\n\")\n_, labels, _, segments, *_ = verify_image_label((str(root / \"0.jpg\"), str(root / \"0.txt\"), \"\", False, 1, 0, 0, False))\nactual = [len(labels), len(segments)]\nexpected = [2, 2]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "[1, 1] on ultralytics 8.4.163: the second triangle was dropped as a duplicate"
   }
  ]
 }

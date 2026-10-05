@@ -18,7 +18,9 @@
   one write zeroed all three taps). The kornia block is 31 cases, all `present` on 0.8.3 and all
   `fixed` on main. One more ultralytics case, `scale_masks` with the dataloader's `ratio_pad` and an
   odd letterbox padding (#26379, a padded row survived the crop and the bottom rows of every mask
-  faded to 0; `fixed_in_release` 8.4.165, the first tag with the fix). The corpus is 48 cases.
+  faded to 0) and `verify_image_label` on two triangles that tile one square (#26377, the second
+  polygon was dropped as a duplicate of the first because only the class and the box were compared);
+  both carry `fixed_in_release` 8.4.165, the first tag with the fixes. The corpus is 49 cases.
 - The manual `workflow_dispatch` run of CI is now strict about the corpus like the Monday run (the
   changelog said so already, the workflow set the variable for `schedule` only).
 - The release workflow's manual dry run (`workflow_dispatch` without `publish`) now ends in a
