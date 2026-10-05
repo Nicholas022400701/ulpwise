@@ -74,6 +74,67 @@ def _sqrt_entry():
     return next(e for e in survey.REGISTRY if e.name == "sqrt")
 
 
+@pytest.mark.parametrize("entry", survey.REGISTRY, ids=lambda e: e.name)
+def test_every_reference_agrees_with_the_libraries_it_measures(entry):
+    # A wrong reference (another function, a sign, a swapped argument) is thousands of ulps from every library
+    # on most of the grid, a right one is within a few even where a library has a bad point: on the 24 point
+    # float64 grid the worst median is torch's polygamma_1 at 9 ulp, log2 with a natural log reference is 3e15.
+    backends = [b for b in ("torch", "numpy", "scipy") if _has(b)]
+    with np.errstate(all="ignore"):  # numpy's reciprocal warns at 0 and at the overflow edge of the grid
+        results = survey.survey(backends=backends, dtypes=("f64",), points=24, functions=[entry.name])
+    if not results:
+        pytest.skip(f"{entry.name} is not implemented by any of {backends}")
+    for r in results:
+        assert r.n >= 20
+        assert r.median_ulp <= 32, (r.backend, r.median_ulp, r.worst_x, r.worst_got, r.worst_ref)
+
+
+@pytest.mark.skipif(not _has("torch"), reason="needs torch as the second opinion")
+@pytest.mark.parametrize(
+    ("name", "x", "expected"),
+    [
+        # the median above does not see a slip in one branch of a piecewise reference: selu with alpha 1.77 in
+        # place of 1.67 moves a third of the grid and keeps the median; one point per branch does see it
+        ("selu", -1.0, "torch"),
+        ("selu", 1.0, "torch"),
+        ("elu", -1.0, "torch"),
+        ("elu", 1.0, "torch"),
+        ("entr", 0.5, "torch"),
+        ("entr", 0.0, 0.0),
+        ("entr", -1.0, -math.inf),
+        ("gelu_tanh", -1.0, "torch"),  # at -7.3 torch's formula cancels to -0.0, that is the survey's finding
+        ("gelu_tanh", 1.0, "torch"),
+        ("spherical_bessel_j0", 0.0, 1.0),
+        ("spherical_bessel_j0", 2.0, "torch"),
+        ("sinc", 0.5, "torch"),
+        ("log_ndtr", -5.0, "torch"),
+        ("log_ndtr", 1.0, "torch"),  # the log1p branch; at 5 torch is 5 ulp off, that is the survey's finding
+        ("lgamma", -2.0, math.inf),
+        ("lgamma", -2.5, "torch"),
+        ("digamma", -2.0, None),  # torch returns nan at the poles
+        ("erfinv", 1.0, math.inf),
+        ("erfinv", -1.0, -math.inf),
+        ("ndtri", 0.0, -math.inf),
+        ("ndtri", 1.0, math.inf),
+        ("zeta", 1.0, math.inf),
+        ("zeta", 0.5, None),  # torch.special.zeta returns nan below 1
+    ],
+)
+def test_piecewise_references_in_each_branch(name, x, expected):
+    mp.mp.prec = 200
+    entry = next(e for e in survey.REGISTRY if e.name == name)
+    ref = survey._mpf_ref(entry.ref, x)
+    if expected == "torch":
+        got = float(survey.backend_callable("torch", entry, "f64")(np.array([x], dtype=np.float64))[0])
+        assert survey._ulp_error(got, ref, "f64") <= 4, (got, ref)
+    elif expected is None:
+        assert ref is None
+    elif math.isinf(expected):
+        assert mp.isinf(ref) and (ref > 0) == (expected > 0)
+    else:
+        assert ref == expected
+
+
 def test_resolve_follows_dotted_paths_and_passes_callables_through():
     assert survey._resolve(None, "numpy") is None
     assert survey._resolve(np.exp, "numpy") is np.exp

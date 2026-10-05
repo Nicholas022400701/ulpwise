@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `tests/test_survey.py` checks every reference of the survey registry against the libraries it measures:
+  each entry is surveyed on a 24 point float64 grid against torch, numpy and scipy and its median error must
+  stay under 32 ulp, which a reference that is another function fails by fifteen orders of magnitude (torch's
+  `polygamma_1` is the worst true median at 9 ulp), and the piecewise references (`selu`, `elu`, `entr`,
+  `gelu_tanh`, `log_ndtr`, `lgamma`, `digamma`, `erfinv`, `ndtri`, `zeta`, `sinc`, `spherical_bessel_j0`)
+  are pinned once per branch, since a slip in one branch moves a third of the grid and keeps the median.
+  `survey.py` goes from 77 to 94 percent covered.
 - With torch installed but `expecttest` missing, `torch.testing._internal` does not import and
   `ulpwise survey` silently used the dtype default as the `OpInfo` tolerance, so the `op tol` columns
   looked like an override that was never read. The survey now logs one line with the import error and
