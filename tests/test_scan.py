@@ -30,6 +30,15 @@ SNIPPET = textwrap.dedent(
         return torch.log(torch.exp(a) + torch.exp(b))
 
 
+    def lse_dim(x):
+        return torch.log(torch.exp(x).sum(-1))
+
+
+    def lse_backend(x):
+        be = backend_of(x)
+        return be.log(be.exp(x).sum((0, 1)))
+
+
     def norm2(a, b):
         return torch.sqrt(a ** 2 + b ** 2)
 
@@ -65,6 +74,8 @@ EXPECTED = {
     ("sin-of-pi-times", "trigamma_reflect"),
     ("softplus-by-hand", "softplus"),
     ("logsumexp-by-hand", "lse"),
+    ("logsumexp-by-hand", "lse_dim"),
+    ("logsumexp-by-hand", "lse_backend"),
     ("hypot-by-hand", "norm2"),
     ("acos-for-angle", "angle_between"),
     ("one-minus-cos", "so3_jacobian"),

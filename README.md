@@ -218,7 +218,7 @@ overflows, the usual replacement and, where one exists, the upstream bug it come
 | `exp-of-square` | high | `exp(x * x)`, `exp(x ** 2)`, `(-x.pow(2)).exp()`: the rounding error of the square is multiplied by `x * x / 2` ulps (pytorch #198664) |
 | `sin-of-pi-times` | high | `sin(pi * x)`, `cos(pi * x)`: the product is rounded before the argument reduction (pytorch #198663) |
 | `softplus-by-hand` | high | `log(1 + exp(x))` |
-| `logsumexp-by-hand` | high | `log(exp(a) + exp(b))`, `log(sum(exp(x)))` |
+| `logsumexp-by-hand` | high | `log(exp(a) + exp(b))`, `log(sum(exp(x)))`, `log(exp(x).sum(-1))` |
 | `hypot-by-hand` | high | `sqrt(a * a + b * b)` |
 | `sqrt-of-difference` | medium | `sqrt(a - b)` |
 | `one-minus-cos` | medium | `1 - cos(x)` (kornia #4897) |

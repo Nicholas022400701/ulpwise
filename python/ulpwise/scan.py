@@ -143,18 +143,27 @@ class HotSpot:
     names: List[str]
 
 
+def _is_dim(node: ast.AST) -> bool:
+    """``-1``, ``0``, ``None`` or a tuple of them: the argument of ``x.sum(-1)`` or ``x.pow(2)``, never a tensor."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        node = node.operand
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(_is_dim(elt) for elt in node.elts)
+    return isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, (int, bool)))
+
+
 def _callee(node: ast.AST) -> Tuple[Optional[str], Optional[ast.AST]]:
-    """Name of the function called and its first argument, for ``f(x)``, ``mod.f(x)`` and the method
-    form ``x.f()``. Returns (None, None) when ``node`` is not such a call."""
+    """Name of the function called and the value it is applied to, for ``f(x)``, ``mod.f(x)`` and the method
+    forms ``x.f()`` and ``x.f(-1)``. Returns (None, None) when ``node`` is not such a call."""
     if not isinstance(node, ast.Call):
         return None, None
     fn = node.func
     if isinstance(fn, ast.Name):
         return fn.id, node.args[0] if node.args else None
     if isinstance(fn, ast.Attribute):
-        if node.args:
+        if node.args and not _is_dim(node.args[0]):
             return fn.attr, node.args[0]
-        return fn.attr, fn.value  # method form, the receiver is the argument
+        return fn.attr, fn.value  # method form, the receiver is the argument and the arguments are dims
     return None, None
 
 
