@@ -1061,6 +1061,48 @@
     "max_ulp": 1
    },
    "before_fix": "[0.0, 4.172325134277344e-07, 1.1920928955078125e-06, 1.1563301086425781e-05] on torch 2.14.0 (2, 2, 1 and 4 ulp)"
+  },
+  {
+   "id": "pytorch-199867-logit-bfloat16-intermediate-rounding",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 199867,
+   "merged_at": null,
+   "kind": "rounding",
+   "title": "torch.special.logit in bfloat16 on CPU rounds 1 - x and x / (1 - x) to bfloat16 before the log, 64 ulp at x = 0.498047",
+   "symptom": "The CPU kernel computes 1 - x and x / (1 - x) in the input dtype and only the log in float, so near x = 0.5, where logit is small, the two roundings take most of the digits: logit(0.499756) in float16 is -0.000488 for an exact -0.000977 (512 ulp), 582 of the 15358 float16 values in (0, 1) are more than 1 ulp off and 59 of the 16254 bfloat16 values, 64 ulp at worst. The CUDA kernel computes in float. The patch computes in float and rounds once, as sigmoid_kernel does for the reduced types.",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nxs = torch.tensor([0.498046875, 0.490234375, 0.470703125, 0.51953125], dtype=torch.bfloat16)\nactual = torch.special.logit(xs).tolist()\n# logit at the bfloat16 inputs in float64, rounded to bfloat16\nexpected = [-0.0078125, -0.0390625, -0.1171875, 0.078125]\n",
+   "check": {
+    "type": "max_ulp",
+    "dtype": "bf16",
+    "max_ulp": 1
+   },
+   "before_fix": "[-0.00390625, -0.035888671875, -0.1201171875, 0.0751953125] on torch 2.14.0 (64, 13, 5.7 and 6.1 ulp)"
+  },
+  {
+   "id": "pytorch-199867-logit-float16-intermediate-rounding",
+   "repo": "pytorch/pytorch",
+   "pr": null,
+   "issue": 199867,
+   "merged_at": null,
+   "kind": "rounding",
+   "title": "torch.special.logit in float16 on CPU rounds 1 - x and x / (1 - x) to float16 before the log, 512 ulp at x = 0.499756",
+   "symptom": "The CPU kernel computes 1 - x and x / (1 - x) in the input dtype and only the log in float, so near x = 0.5, where logit is small, the two roundings take most of the digits: logit(0.499756) in float16 is -0.000488 for an exact -0.000977 (512 ulp), 582 of the 15358 float16 values in (0, 1) are more than 1 ulp off and 59 of the 16254 bfloat16 values, 64 ulp at worst. The CUDA kernel computes in float. The patch computes in float and rounds once, as sigmoid_kernel does for the reduced types.",
+   "requires": [
+    "torch"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nxs = torch.tensor([0.499755859375, 0.497314453125, 0.489990234375, 0.52001953125], dtype=torch.float16)\nactual = torch.special.logit(xs).tolist()\n# logit at the float16 inputs in float64, rounded to float16\nexpected = [-0.0009765625, -0.0107421875, -0.0400390625, 0.08013916015625]\n",
+   "check": {
+    "type": "max_ulp",
+    "dtype": "f16",
+    "max_ulp": 1
+   },
+   "before_fix": "[-0.00048828125, -0.01129150390625, -0.039337158203125, 0.0797119140625] on torch 2.14.0 (512, 72, 23 and 6.7 ulp)"
   }
  ]
 }

@@ -5,6 +5,9 @@
 - Two regression corpus cases for pytorch #199850: `torch.erf` in bfloat16 and float16 on CPU returns 0 at and
   below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps at worst), found with
   the half precision rows of `ulpwise survey --functions erf --backends torch --dtypes f16,bf16`.
+- Two regression corpus cases for pytorch #199867: `torch.special.logit` in float16 and bfloat16 on CPU rounds `1 - x`
+  and `x / (1 - x)` to the input dtype before the log, so logit(0.499756) in float16 is -0.000488 for an exact -0.000977
+  (512 ulp, 64 bfloat16 ulp at worst), found with `ulpwise survey --functions logit --backends torch --dtypes f16,bf16`.
 - `ulpwise survey`: the `polygamma_1` and `polygamma_2` references at a non positive integer are now the signed
   infinity of the pole, `+inf` for an odd order (the limit from both sides) and `-inf` for an even one (the sign of
   `(-1) ** (n + 1) * n! * zeta(n + 1, x)`, which is what scipy, torch and jax return), instead of a domain error
