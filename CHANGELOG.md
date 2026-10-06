@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-10-06)
 
 - Two regression corpus cases for pytorch #199850: `torch.erf` in bfloat16 and float16 on CPU returns 0 at and
   below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps at worst), found with
