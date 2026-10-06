@@ -218,7 +218,7 @@ ulpwise scan path/to/repo --rules one-minus-cos,small-angle-division --top 40
 ```
 
 The scan is static and needs nothing installed: it parses each file with `ast`, walks every
-function and matches twelve patterns, each with a severity, the reason it loses digits or
+function and matches thirteen patterns, each with a severity, the reason it loses digits or
 overflows, the usual replacement and, where one exists, the upstream bug it comes from.
 
 | rule | severity | pattern |
@@ -234,6 +234,7 @@ overflows, the usual replacement and, where one exists, the upstream bug it come
 | `atan-of-quotient` | medium | `atan(y / x)` |
 | `small-angle-division` | medium | `/ theta`, `/ theta ** 2`, `/ sin(theta)` in a function that takes `sin` or `cos` of `theta` and has no `where`, `clamp`, `eps` or series in sight (kornia #4838, #4897) |
 | `acos-for-angle` | medium | `acos`, `asin` used to recover an angle: the angle comes back with an absolute error of `sqrt(eps)`, 0.02 degrees in float32 (kornia #5500) |
+| `eps-floor` | medium | `x * (1 - eps) + eps`: every value moves, 0 becomes `eps`, so a one-hot's entries sum to `1 + (C - 1) eps` and a perfect prediction scores a loss that grows with the image (kornia #5538, found by the kornia conventions audit) |
 
 On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 findings. The
 `one-minus-cos` and `small-angle-division` findings are the four lines of `So3.right_jacobian` and

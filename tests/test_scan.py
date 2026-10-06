@@ -74,6 +74,20 @@ SNIPPET = textwrap.dedent(
         return w / s
 
 
+    def one_hot_floor(labels, eps):
+        t = torch.nn.functional.one_hot(labels, 3).float()
+        return t * (1.0 - eps) + eps
+
+
+    class Smoother:
+        def forward(self, t):
+            return self.eps + (1 - self.eps) * t
+
+
+    def eps_guard(p, q, eps):
+        return (p + eps) / (q + eps) * (1 - eps)
+
+
     def misc(x, y):
         a = torch.log(1 + x)
         b = torch.exp(x) - 1
@@ -96,6 +110,8 @@ EXPECTED = {
     ("logsumexp-by-hand", "lse_half_shifted"),
     ("hypot-by-hand", "norm2"),
     ("acos-for-angle", "angle_between"),
+    ("eps-floor", "one_hot_floor"),
+    ("eps-floor", "Smoother.forward"),
     ("one-minus-cos", "so3_jacobian"),
     ("small-angle-division", "so3_jacobian"),
     ("log1p-by-hand", "misc"),
@@ -110,7 +126,7 @@ def test_every_rule_fires_once_on_its_snippet_and_the_guard_silences_it():
     assert {(f.rule, f.function) for f in findings} == EXPECTED
     assert {rule for rule, _ in EXPECTED} == set(scan.RULES)  # every rule has a snippet
     assert sum(f.rule == "exp-of-square" for f in findings) == 3  # x * x, x.pow(2), square(x)
-    assert not [f for f in findings if f.function in {"so3_jacobian_guarded", "lse_shifted", "lse_shifted_inline"}]
+    assert not [f for f in findings if f.function in {"so3_jacobian_guarded", "lse_shifted", "lse_shifted_inline", "eps_guard"}]
     assert all(f.snippet and f.line > 0 and f.path == "demo.py" for f in findings)
     busiest = max(spots, key=lambda s: s.calls)
     assert busiest.function == "misc" and busiest.calls == 7 and "exp" in busiest.names

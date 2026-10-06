@@ -118,6 +118,12 @@ RULES = {
         "atan2 of the cross product norm and the dot product",
         "kornia #5500, angle_error_mat and angle_error_vec return 0 below 0.03 degrees in float32",
     ),
+    "eps-floor": (
+        "medium",
+        "x * (1 - eps) + eps: every value moves, 0 becomes eps and 1 stays 1, so the entries of a one-hot sum to 1 + (C - 1) eps and a perfect prediction scores a loss that grows with the image",
+        "keep the values exact and add eps only to the log argument or the denominator that needs it, or default eps to 0",
+        "kornia #5538 (found by the kornia conventions audit), one_hot floored its zeros with 1e-6 and a perfect prediction scored a macro Dice loss of 0.0234 on a 256 x 384 image",
+    ),
 }
 SEVERITY_ORDER = {"high": 0, "medium": 1, "info": 2}
 
@@ -288,6 +294,38 @@ def _every_exp_shifted(node: ast.AST, maxima: set, shifted: set) -> bool:
 
 
 _GUARD = re.compile(r"\bwhere\b|\bclamp|\bclip\b|\beps\b|\bfinfo\b|\btaylor\b|\bseries\b|small.angle|\bmasked", re.I)
+_EPS_NAME = re.compile(r"^_?(eps|epsilon|smoothing|label_smoothing)$", re.I)
+
+
+def _eps_key(node: ast.AST) -> Optional[str]:
+    """``'eps'`` for a name or attribute that looks like a smoothing constant (``eps``, ``self.eps``), else None."""
+    node = _strip(node)
+    if isinstance(node, ast.Name) and _EPS_NAME.match(node.id):
+        return node.id
+    if isinstance(node, ast.Attribute) and _EPS_NAME.match(node.attr):
+        return ast.unparse(node)
+    return None
+
+
+def _is_eps_floor(node: ast.AST) -> bool:
+    """``x * (1 - eps) + eps`` in either order: the eps smoothing floor that moves every value."""
+    if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)):
+        return False
+    for eps, other in ((node.right, node.left), (node.left, node.right)):
+        key = _eps_key(eps)
+        other = _strip(other)
+        if key is None or not (isinstance(other, ast.BinOp) and isinstance(other.op, ast.Mult)):
+            continue
+        for factor in (other.left, other.right):
+            factor = _strip(factor)
+            if (
+                isinstance(factor, ast.BinOp)
+                and isinstance(factor.op, ast.Sub)
+                and _is_const(factor.left, 1)
+                and _eps_key(factor.right) == key
+            ):
+                return True
+    return False
 
 
 def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: Sequence[str]) -> Tuple[List[Finding], HotSpot]:
@@ -317,6 +355,8 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
             den_name = den.id if isinstance(den, ast.Name) else None
             if not guarded and angles and (den_name in angles or _contains_call(den, SIN)):
                 add("small-angle-division", node)
+        if _is_eps_floor(node):
+            add("eps-floor", node)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
             left, right = _strip(node.left), _strip(node.right)
             rn, _ = _callee(right)
