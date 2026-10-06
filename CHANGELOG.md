@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `ulpwise scan`: `acos-for-angle` moves from `info` to `medium` and names the mechanism: next to 1 the cosine has no
+  digits left for a small angle, so `acos` recovers the angle with an absolute error of `sqrt(eps)`, 0.02 degrees in
+  float32, whatever the angle. The kornia scan listed `kornia/metrics/pose.py` under this rule, and both functions
+  there, `angle_error_mat` and `angle_error_vec`, return exactly 0 for every rotation below 0.03 degrees in float32
+  and 180.0 for 179.99 degrees (kornia #5500); the rule cites it.
+- Regression corpus case for kornia #5500: a 0.01 degree rotation scores 0.0 in both metrics on kornia main 050ac77f.
+
 ## 0.3.2 (2026-10-06)
 
 - Two regression corpus cases for pytorch #199850: `torch.erf` in bfloat16 and float16 on CPU returns 0 at and

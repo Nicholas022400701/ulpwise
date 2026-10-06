@@ -139,7 +139,7 @@ def test_scan_cli(tmp_path, capsys):
     assert "findings" in capsys.readouterr().out and report.read_text().startswith("# ulpwise scan of")
     assert main(["scan", str(tmp_path), "--rules", "acos-for-angle", "--fail-on", "high"]) == 0
     out = capsys.readouterr().out
-    assert "acos-for-angle [info] x1" in out and "exp-of-square" not in out
+    assert "acos-for-angle [medium] x1" in out and "exp-of-square" not in out
     assert main(["scan", str(tmp_path), "--rules", "no-such-rule"]) == 2
     assert main(["scan", str(tmp_path / "missing")]) == 2
 

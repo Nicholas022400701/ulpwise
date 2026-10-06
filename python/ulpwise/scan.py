@@ -112,10 +112,10 @@ RULES = {
         "kornia #4838 and #4897, So3.log and the Jacobians",
     ),
     "acos-for-angle": (
-        "info",
-        "acos or asin to recover an angle: the derivative is infinite at the ends, so the angle near 0 or pi loses half its digits",
+        "medium",
+        "acos or asin to recover an angle: next to 1 the cosine has no digits left for a small angle, so the angle comes back with an absolute error of sqrt(eps), 0.02 degrees in float32, whatever its size, and the derivative is infinite at the ends",
         "atan2 of the cross product norm and the dot product",
-        "",
+        "kornia #5500, angle_error_mat and angle_error_vec return 0 below 0.03 degrees in float32",
     ),
 }
 SEVERITY_ORDER = {"high": 0, "medium": 1, "info": 2}
