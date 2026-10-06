@@ -13,6 +13,10 @@
   there, `angle_error_mat` and `angle_error_vec`, return exactly 0 for every rotation below 0.03 degrees in float32
   and 180.0 for 179.99 degrees (kornia #5500); the rule cites it.
 - Regression corpus case for kornia #5500: a 0.01 degree rotation scores 0.0 in both metrics on kornia main 050ac77f.
+- The kornia #5500 corpus case records its fix, kornia #5505, merged 2026-10-06: `angle_error_mat` reads the sine from the
+  skew part of the relative rotation and `angle_error_vec` from the cross product of the scaled vectors, and both return
+  `atan2(sin, cos)`, so a 0.01 degree rotation scores 0.0099990 in float32. The case stays an expected failure until a
+  kornia release carries the fix.
 - `ulpwise scan`: `logsumexp-by-hand` no longer fires on the stable form, where every `exp` argument has its
   maximum subtracted first (`log(exp(x - x.max()).sum())`, or `s = x - m` with `m` bound to a `max`, `amax`,
   `maximum` or `torch.max(...).values`). The lm-evaluation-harness scan listed the numerically stable `_log_softmax`

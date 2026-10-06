@@ -1107,9 +1107,9 @@
   {
    "id": "kornia-5500-angle-error-small-angle-acos",
    "repo": "kornia/kornia",
-   "pr": null,
+   "pr": 5505,
    "issue": 5500,
-   "merged_at": null,
+   "merged_at": "2026-10-06T17:27:13Z",
    "kind": "cancellation",
    "title": "angle_error_mat and angle_error_vec return exactly 0 for every rotation below 0.03 degrees in float32",
    "symptom": "Both metrics recover the angle as acos of a cosine, (tr(R1^T R2) - 1) / 2 and v1 . v2 / (|v1| |v2|). Next to 1 the float32 cosine has no digits left for a small angle, so a 0.01 degree rotation scores 0.0, a 0.05 degree one is 3 to 21 % off depending on the rotations and 179.99 degrees comes back as 180.0; the clamp(-1, 1).acos() also has a -inf / nan backward at exactly 0 and 180 degrees on torch 2.5.1. The patch reads sin(theta) from the skew part of the relative rotation, the cross product of the unit vectors for angle_error_vec, and returns atan2(sin, cos).",
