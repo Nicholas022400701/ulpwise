@@ -72,8 +72,9 @@ RULES = {
     "hypot-by-hand": (
         "high",
         "sqrt(a * a + b * b): the squares overflow or underflow long before the result would",
-        "hypot(a, b) or norm",
-        "",
+        "hypot(a, b); a torch or numpy norm squares the entries first too and overflows at sqrt(max), 1.8e19 in float32, "
+        "so to normalise a vector divide by its largest absolute entry rather than by its norm",
+        "kornia #5505 review, angle_error_vec divided by the norm and returned 0 for float32 vectors longer than 1.8e19",
     ),
     "sqrt-of-difference": (
         "medium",

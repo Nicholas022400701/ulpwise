@@ -227,7 +227,7 @@ overflows, the usual replacement and, where one exists, the upstream bug it come
 | `sin-of-pi-times` | high | `sin(pi * x)`, `cos(pi * x)`: the product is rounded before the argument reduction (pytorch #198663) |
 | `softplus-by-hand` | high | `log(1 + exp(x))` |
 | `logsumexp-by-hand` | high | `log(exp(a) + exp(b))`, `log(sum(exp(x)))`, `log(exp(x).sum(-1))`; quiet when every `exp` argument has its maximum subtracted first, `log(exp(x - x.max()).sum())`, the stable form |
-| `hypot-by-hand` | high | `sqrt(a * a + b * b)` |
+| `hypot-by-hand` | high | `sqrt(a * a + b * b)`; the advice no longer says `norm`, which squares first too and overflows at 1.8e19 in float32 (kornia #5505 review) |
 | `sqrt-of-difference` | medium | `sqrt(a - b)` |
 | `one-minus-cos` | medium | `1 - cos(x)` (kornia #4897) |
 | `log1p-by-hand`, `expm1-by-hand` | medium | `log(1 + x)`, `exp(x) - 1` |

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `ulpwise scan`: the `hypot-by-hand` advice no longer offers `norm` as the replacement. `torch.linalg.vector_norm` and
+  `numpy.linalg.norm` square the entries first too, so in float32 both return `inf` for a vector with two entries of
+  1.8e19 while `hypot` returns 2.5e19; the advice now says to divide a vector by its largest absolute entry when the
+  point is a direction. The kornia maintainer caught the case in review of kornia #5505, where `v / v.norm()` turned
+  such vectors into zeros and the angle between them read 0.
 - `ulpwise scan`: `acos-for-angle` moves from `info` to `medium` and names the mechanism: next to 1 the cosine has no
   digits left for a small angle, so `acos` recovers the angle with an absolute error of `sqrt(eps)`, 0.02 degrees in
   float32, whatever the angle. The kornia scan listed `kornia/metrics/pose.py` under this rule, and both functions
