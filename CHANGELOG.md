@@ -8,6 +8,10 @@
   there, `angle_error_mat` and `angle_error_vec`, return exactly 0 for every rotation below 0.03 degrees in float32
   and 180.0 for 179.99 degrees (kornia #5500); the rule cites it.
 - Regression corpus case for kornia #5500: a 0.01 degree rotation scores 0.0 in both metrics on kornia main 050ac77f.
+- `ulpwise scan`: `logsumexp-by-hand` no longer fires on the stable form, where every `exp` argument has its
+  maximum subtracted first (`log(exp(x - x.max()).sum())`, or `s = x - m` with `m` bound to a `max`, `amax`,
+  `maximum` or `torch.max(...).values`). The lm-evaluation-harness scan listed the numerically stable `_log_softmax`
+  of `lm_eval/models/_onnx_base.py` next to a real `log(exp(a) + exp(b))`; it now reports only the real one.
 
 ## 0.3.2 (2026-10-06)
 

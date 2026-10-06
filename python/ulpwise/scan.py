@@ -65,7 +65,7 @@ RULES = {
     ),
     "logsumexp-by-hand": (
         "high",
-        "log of a sum of exps: any large term overflows the sum to inf",
+        "log of a sum of exps with no maximum subtracted first: any large term overflows the sum to inf",
         "logsumexp, or subtract the maximum before exp",
         "",
     ),
@@ -227,6 +227,65 @@ def _angle_names(body: ast.AST) -> set:
     return out
 
 
+MAXIMUM = {"max", "amax", "maximum", "fmax"}
+
+
+def _is_maximum(node: ast.AST) -> Optional[ast.AST]:
+    """The value whose maximum is taken in ``x.max(-1)``, ``np.max(x, axis=-1, keepdims=True)``, ``torch.amax(x)``,
+    ``torch.maximum(a, b)`` and the ``.values`` or ``[0]`` of a ``torch.max`` result, else None."""
+    node = _strip(node)
+    if isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Attribute) and node.attr == "values":
+        node = node.value
+    name, arg = _callee(node)
+    return arg if name in MAXIMUM else None
+
+
+def _maxima_and_shifted(fn: ast.AST) -> Tuple[set, set]:
+    """Names bound in ``fn`` to a maximum, and names bound to a value with a maximum subtracted from it."""
+    maxima: set = set()
+    shifted: set = set()
+    assignments = [
+        (node.targets if isinstance(node, ast.Assign) else [node.target], node.value)
+        for node in ast.walk(fn)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None
+    ]
+    for targets, value in assignments:
+        for target in targets:
+            if isinstance(target, (ast.Tuple, ast.List)) and target.elts:
+                target = target.elts[0]  # ``m, _ = x.max(-1)``
+            if isinstance(target, ast.Name) and _is_maximum(value) is not None:
+                maxima.add(target.id)
+    for targets, value in assignments:
+        for target in targets:
+            if isinstance(target, ast.Name) and _is_shifted(value, maxima, set()):
+                shifted.add(target.id)
+    return maxima, shifted
+
+
+def _is_shifted(node: ast.AST, maxima: set, shifted: set) -> bool:
+    """``x - x.max(...)``, ``x - m`` with ``m`` bound to a maximum, or a name bound to such a difference: the
+    argument of ``exp`` in the stable form of logsumexp, which cannot overflow."""
+    node = _strip(node)
+    if isinstance(node, ast.Name):
+        return node.id in shifted
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
+        right = _strip(node.right)
+        return _is_maximum(right) is not None or (isinstance(right, ast.Name) and right.id in maxima)
+    return False
+
+
+def _every_exp_shifted(node: ast.AST, maxima: set, shifted: set) -> bool:
+    """Every ``exp`` inside ``node`` is applied to a value with its maximum subtracted."""
+    args = []
+    for sub in ast.walk(node):
+        name, arg = _callee(sub)
+        if name in EXP and arg is not None:
+            args.append(arg)
+    return bool(args) and all(_is_shifted(arg, maxima, shifted) for arg in args)
+
+
 _GUARD = re.compile(r"\bwhere\b|\bclamp|\bclip\b|\beps\b|\bfinfo\b|\btaylor\b|\bseries\b|small.angle|\bmasked", re.I)
 
 
@@ -236,6 +295,7 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
     divisions = 0
     names: List[str] = []
     angles = _angle_names(fn)
+    maxima, shifted = _maxima_and_shifted(fn)
     fn_source = "\n".join(source_lines[fn.lineno - 1 : getattr(fn, "end_lineno", fn.lineno)])
     guarded = bool(_GUARD.search(fn_source))
 
@@ -280,13 +340,15 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
                 if (_is_const(a, 1) and bn in EXP) or (_is_const(b, 1) and an in EXP):
                     add("softplus-by-hand", node)
                 elif an in EXP and bn in EXP:
-                    add("logsumexp-by-hand", node)
+                    if not _every_exp_shifted(inner, maxima, shifted):
+                        add("logsumexp-by-hand", node)
                 elif _is_const(a, 1) or _is_const(b, 1):
                     add("log1p-by-hand", node)
             else:
                 sn, sarg = _callee(inner)
                 if sn == "sum" and sarg is not None and _contains_call(sarg, EXP):
-                    add("logsumexp-by-hand", node)
+                    if not _every_exp_shifted(sarg, maxima, shifted):
+                        add("logsumexp-by-hand", node)
         elif name in SQRT:
             if isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Add) and _is_square(inner.left) and _is_square(inner.right):
                 add("hypot-by-hand", node)
