@@ -314,6 +314,21 @@ logged and skipped.
 - scipy's float64 `lgamma` does not handle the zeros at 1 and 2, and its Bessel functions lose the
   phase at large `x`.
 
+[`studies/accuracy-survey-2026-10-half`](https://github.com/Nicholas022400701/ulpwise/blob/main/studies/accuracy-survey-2026-10-half/README.md)
+is the second run, the 45 functions with torch float16 and bfloat16 CPU kernels measured in the ulps of
+those dtypes on the same build. 33 of the 45 float16 rows and 34 of the bfloat16 rows are correctly
+rounded over the whole grid; the exceptions:
+
+- `erf` goes through a formula with 1.5e-7 absolute error, 254 bfloat16 ulps and `-0` below
+  `|x| = 1.8e-7` (pytorch #199850).
+- `logit` rounds `1 - x` and `x / (1 - x)` to the input dtype before the log, 512 float16 ulps at
+  `x = 0.499756` while the CUDA kernel computes in float (pytorch #199867).
+- `polygamma(2, x)` in float16 is off at every half integer in `(-1024, -256)`, 1,540 ulps at
+  `x = -1023.5`, because the Hurwitz zeta sum accumulates in float for the reduced types and in
+  double for float32.
+- the `gelu`, `gelu_tanh`, `silu` and `sigmoid` tails and the `rsqrt` and `i0e` vector versus scalar
+  disagreements are the float32 findings of September seen through coarser ulps.
+
 ## How the exact oracle works
 
 For `sqrt(x)` the candidate `r` and the midpoint `m` between `r` and its neighbour are written as
