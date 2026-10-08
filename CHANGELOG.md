@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 (2026-10-08)
 
 - Two regression corpus cases for peft, both open upstream with a fix PR: peft #3769, `add_weighted_adapter` with
   `combination_type='svd'` crashed for Conv1d and Conv3d LoRA layers because only Conv2d deltas were flattened before
