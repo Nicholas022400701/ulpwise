@@ -1125,6 +1125,48 @@
     "rtol": 0.001
    },
    "before_fix": "[0.0, 0.0] on kornia main 050ac77f"
+  },
+  {
+   "id": "peft-3769-add-weighted-adapter-svd-conv1d-conv3d",
+   "repo": "huggingface/peft",
+   "pr": null,
+   "issue": 3769,
+   "merged_at": null,
+   "kind": "crash",
+   "title": "add_weighted_adapter with combination_type='svd' crashed for Conv1d and Conv3d LoRA layers",
+   "symptom": "_svd_generalized_task_arithmetic_weighted_adapter checked isinstance(target, Conv2d) and flattened only that, so a Conv1d or Conv3d delta weight reached the SVD with its kernel dims in place and the matmul raised. The fix tests _ConvNd and always flattens from dim 1; PR 3903 is open with it.",
+   "requires": [
+    "torch",
+    "peft"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom peft import LoraConfig, get_peft_model\n\nclass Net(torch.nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.conv = torch.nn.Conv1d(4, 8, kernel_size=3)\n\n    def forward(self, x):\n        return self.conv(x)\n\ntorch.manual_seed(0)\nconfig = LoraConfig(target_modules=['conv'], r=2, init_lora_weights=False)\nmodel = get_peft_model(Net(), config, adapter_name='a')\nmodel.add_adapter('b', config)\nx = torch.randn(1, 4, 10)\nwith torch.no_grad():\n    model.base_model.set_adapter(['a', 'b'])\n    both = model(x)\n    # svd_rank=4 holds the rank 2 + 2 sum of the two deltas exactly\n    model.add_weighted_adapter(['a', 'b'], [1.0, 1.0], 'ab', combination_type='svd', svd_rank=4)\n    model.set_adapter('ab')\n    combined = model(x)\nactual = combined.flatten().tolist()\nexpected = both.flatten().tolist()\n",
+   "check": {
+    "type": "allclose",
+    "atol": 1e-05,
+    "rtol": 1e-05
+   },
+   "before_fix": "RuntimeError inside _svd_generalized_task_arithmetic_weighted_adapter on peft main 91ca7945: Expected size for first two dimensions of batch2 tensor to be: [8, 4] but got: [8, 3]"
+  },
+  {
+   "id": "peft-3830-oft-module-dropout-never-applied",
+   "repo": "huggingface/peft",
+   "pr": null,
+   "issue": 3830,
+   "merged_at": null,
+   "kind": "no-op",
+   "title": "OFT module_dropout was never applied, every training forward used all rotation blocks",
+   "symptom": "OFTLayer built self.oft_dropout from module_dropout but OFTRotationModule.forward never called it, so module_dropout=0.5 behaved like 0 and ten training forwards of the same input were identical. The fix passes the dropout into the rotation module and applies it to the Cayley blocks; PR 3905 is open with it.",
+   "requires": [
+    "torch",
+    "peft"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom peft import OFTConfig, get_peft_model\n\nclass Net(torch.nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.lin = torch.nn.Linear(16, 12)\n\n    def forward(self, x):\n        return self.lin(x)\n\ntorch.manual_seed(0)\nconfig = OFTConfig(target_modules=['lin'], r=4, oft_block_size=0, module_dropout=0.5, init_weights=False)\nmodel = get_peft_model(Net(), config)\nmodel.train()\nx = torch.randn(8, 16)\nwith torch.no_grad():\n    outputs = [model(x) for _ in range(10)]\n# module_dropout replaces half of the four rotation blocks by the identity in each training forward,\n# so ten forwards cannot all agree\nactual = [max((outputs[0] - out).abs().max().item() for out in outputs[1:])]\nexpected = [1.0]  # any positive spread\n",
+   "check": {
+    "type": "sign"
+   },
+   "before_fix": "[0.0] on peft main 91ca7945; with the fix the ten forwards spread by 0.56"
   }
  ]
 }

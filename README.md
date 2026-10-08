@@ -200,6 +200,8 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 | pytorch #199850 `torch.erf` in bfloat16 and float16 on CPU returns 0 at and below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps) | cancellation | open |
 | pytorch #199867 `torch.special.logit` in float16 and bfloat16 on CPU rounds `1 - x` and `x / (1 - x)` to the input dtype before the log, logit(0.499756) is -0.000488 for -0.000977 (512 float16 ulps, 64 bfloat16 ulps) | rounding | open |
 | kornia #5505 `angle_error_mat` and `angle_error_vec` returned exactly 0 for every rotation below 0.03 degrees in float32 (`acos` next to 1, issue #5500) | cancellation | 2026-10-06 |
+| peft #3769 `add_weighted_adapter` with `combination_type='svd'` crashed for Conv1d and Conv3d LoRA layers | crash | open |
+| peft #3830 OFT `module_dropout` was never applied, every training forward used all rotation blocks | no-op | open |
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet. Every case
 is an expected failure until the installed release contains the fix (`fixed_in_release` in

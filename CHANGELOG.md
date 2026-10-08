@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Two regression corpus cases for peft, both open upstream with a fix PR: peft #3769, `add_weighted_adapter` with
+  `combination_type='svd'` crashed for Conv1d and Conv3d LoRA layers because only Conv2d deltas were flattened before
+  the SVD (the case combines two rank 2 adapters at `svd_rank=4` and expects the output of both adapters active, which
+  the fix matches to 2e-6), and peft #3830, OFT `module_dropout` was never applied, so ten training forwards of the
+  same input were identical where the fix spreads them by 0.56.
 - `ulpwise scan`: new `where-nan-gradient` rule (medium) for `where(d > eps, f(d), other)` with `f` a division by `d`
   or a `sqrt`, `log`, `acos` or `asin` of it. `where` evaluates both branches and hands the discarded one a zero
   gradient, and the backward of `f` at the singularity turns that zero into `0 / 0 = nan`, so the guard protects the
