@@ -165,6 +165,17 @@ SNIPPET = textwrap.dedent(
         e = (-(x.pow(2))).exp()
         f = torch.exp(-torch.square(x))
         return a, b, c, d, e, f
+
+
+    class Unregularised(torch.nn.Module):
+        def __init__(self, dim, p):
+            super().__init__()
+            self.proj = torch.nn.Linear(dim, dim)
+            self.attn_drop = torch.nn.Dropout(p)
+            self.proj_drop = torch.nn.Dropout(p)
+
+        def forward(self, x):
+            return self.proj_drop(self.proj(x))
     '''
 )
 
@@ -182,6 +193,7 @@ EXPECTED = {
     ("acos-for-angle", "angle_between"),
     ("eps-floor", "one_hot_floor"),
     ("eps-floor", "Smoother.forward"),
+    ("dropout-never-applied", "Unregularised.__init__"),
     ("one-minus-cos", "so3_jacobian"),
     ("small-angle-division", "so3_jacobian"),
     ("where-nan-gradient", "so3_jacobian_guarded"),
@@ -213,6 +225,88 @@ def test_every_rule_fires_once_on_its_snippet_and_the_guard_silences_it():
     assert all(f.snippet and f.line > 0 and f.path == "demo.py" for f in findings)
     busiest = max(spots, key=lambda s: s.calls)
     assert busiest.function == "misc" and busiest.calls == 7 and "exp" in busiest.names
+
+
+DROPOUTS = textwrap.dedent(
+    '''
+    import torch
+    from torch import nn
+    import torch.nn.functional as F
+
+
+    class Attention(nn.Module):
+        def __init__(self, dim, p):
+            super().__init__()
+            self.dropout = nn.Dropout(p)  # its rate is read and handed to the kernel
+
+        def forward(self, q, k, v):
+            p = self.dropout.p if self.training else 0.0
+            return F.scaled_dot_product_attention(q, k, v, dropout_p=p)
+
+
+    class Block(nn.Module):
+        def __init__(self, dim, p, drop_path):
+            super().__init__()
+            self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()  # never applied
+            self.drop = nn.Dropout(p) if p > 0.0 else nn.Identity()
+            self.mlp = Mlp(dim, drop=self.drop)  # passed on
+
+        def forward(self, x):
+            return x + self.mlp(x)
+
+
+    class Mlp(nn.Sequential):
+        def __init__(self, dim, drop):
+            super().__init__()
+            self.fc = nn.Linear(dim, dim)
+            self.drop = nn.Dropout(0.5)  # a Sequential runs every attribute
+
+
+    class Adapters(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lora_dropout = nn.ModuleDict({})  # filled and called through a subscript
+            self.oft_dropout = nn.ModuleDict({})  # filled and never called
+
+        def update_layer(self, name, p):
+            self.lora_dropout.update(nn.ModuleDict({name: nn.Dropout(p)}))
+            self.oft_dropout.update(nn.ModuleDict({name: nn.Dropout(p)}))
+
+        def forward(self, x, name):
+            return self.lora_dropout[name](x)
+
+
+    class Head(nn.Module):
+        def __init__(self, dim, p):
+            super().__init__()
+            self.dense = nn.Linear(dim, dim)
+            self.dropout = nn.Dropout(p)  # applied by a sibling class of this file
+            self.drops = nn.ModuleList([nn.Dropout(p) for _ in range(2)])  # iterated
+
+        def forward(self, x):
+            for drop in self.drops:
+                x = drop(x)
+            return x
+
+
+    class Wrapped(nn.Module):
+        def forward(self, x):
+            return self.inner.dropout(self.dense(x))
+    '''
+)
+
+
+def test_dropout_never_applied_reads_the_whole_file_and_knows_the_ways_a_module_is_used():
+    findings, _ = scan.scan_source(DROPOUTS, "dropouts.py")
+    assert [(f.function, f.line) for f in findings if f.rule == "dropout-never-applied"] == [
+        ("Block.__init__", 20),
+        ("Adapters.__init__", 39),
+    ]
+    assert findings[0].snippet.startswith("self.drop_path = DropPath(drop_path)")
+    assert findings[1].snippet.startswith("self.oft_dropout = nn.ModuleDict({})")
+    # a float rate is not a module, and a function is not a class
+    quiet = scan.scan_source("class A:\n    def __init__(self, p):\n        self.dropout = p\n\ndef f(self):\n    self.dropout = Dropout(0.1)\n", "q.py")[0]
+    assert not quiet
 
 
 def test_scan_is_quiet_about_the_escape_sequences_of_the_scanned_file():

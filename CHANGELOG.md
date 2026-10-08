@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- `ulpwise scan`: new `dropout-never-applied` rule (medium), the first that reads a whole file rather than one
+  function: a `Dropout`, `DropPath` or a `ModuleDict` or `ModuleList` under a dropout name is assigned to `self`
+  and then never called, never passed on, never returned or iterated and its rate never read, anywhere in the file.
+  The option is accepted and does nothing, so the model trains without the regularisation it reports. peft #3830 is
+  the example: `OFTLayer` built `module_dropout` into `self.oft_dropout`, filled it in `update_layer` and never
+  called it. Reading the rate counts as use (`scaled_dot_product_attention(dropout_p=self.dropout.p)`), as does
+  passing the module to another one; filling it does not, and subclasses of `Sequential`, which run every
+  attribute, are not read. On kornia, ultralytics, torchvision, diffusers, torchrl, vllm and detectron2 main the
+  rule reports nothing; on peft main it reports the #3830 line, on timm main one `attn_drop` in `coat.py` that a
+  comment already calls unused, and on transformers main nine lines, four of them modular files whose `forward`
+  lives in another file.
+
 ## 0.3.3 (2026-10-08)
 
 - Two regression corpus cases for peft, both open upstream with a fix PR: peft #3769, `add_weighted_adapter` with

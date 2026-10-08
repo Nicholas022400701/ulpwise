@@ -136,6 +136,12 @@ RULES = {
         "take the value from the real argument and the gradient from a safe one, f(where(at_bound, safe, x)) with the value fixed up by where, or atan2 instead of acos for an angle",
         "kornia #4229 (found by the kornia conventions audit), _cdist's clamp(min=0.0).sqrt() gave nan gradients for identical float16 descriptors on torch 2.5.1; kornia #5500, clamp(-1, 1).acos() in angle_error_mat had a -inf backward at exactly 0 and 180 degrees on torch 2.5.1",
     ),
+    "dropout-never-applied": (
+        "medium",
+        "a Dropout, DropPath or a ModuleDict of them is assigned to self and then never called, never passed on and its rate never read, anywhere in the file: the option is accepted and does nothing, so the model trains without the regularisation it reports and every training forward of one input agrees",
+        "apply it in forward, or hand its rate to the function that does (scaled_dot_product_attention(dropout_p=self.dropout.p)), or drop the argument so the caller learns it is not supported",
+        "peft #3830, OFTLayer built module_dropout into self.oft_dropout and never called it, so module_dropout=0.5 trained like 0",
+    ),
 }
 SEVERITY_ORDER = {"high": 0, "medium": 1, "info": 2}
 
@@ -653,6 +659,79 @@ def python_files(root: str, include_tests: bool = False) -> List[str]:
     return out
 
 
+DROPOUT_CLASSES = re.compile(r"^(Dropout\w*|AlphaDropout|FeatureAlphaDropout|DropPath|StochasticDepth|DropBlock\w*)$")
+DROPOUT_NAMES = re.compile(r"drop_?out|drop_?path|stochastic_?depth|drop_?block", re.I)
+DROPOUT_HOLDERS = {"ModuleDict", "ModuleList", "Identity"}
+RATE_ATTRS = {"p", "prob", "rate", "drop_prob", "drop_rate", "dropout_p", "dropout", "drop_path_rate"}
+
+
+def _dropout_like(value: ast.AST, attr: str) -> bool:
+    """Whether ``self.<attr> = value`` builds a dropout: a Dropout-class call, either branch of a conditional
+    expression, or a ModuleDict, ModuleList or Identity under a name that says dropout (filled in later)."""
+    if isinstance(value, ast.IfExp):
+        return _dropout_like(value.body, attr) or _dropout_like(value.orelse, attr)
+    if not isinstance(value, ast.Call):
+        return False
+    name, _ = _callee(value)
+    if name is None:
+        return False
+    return bool(DROPOUT_CLASSES.match(name)) or (name in DROPOUT_HOLDERS and bool(DROPOUT_NAMES.search(attr)))
+
+
+def _applied(node: ast.Attribute, parents: dict) -> bool:
+    """Whether this read of ``self.x`` uses the module: a call, a call through a subscript, an argument, a return
+    or yield, an operand, a loop target, an alias to a local, or a read of its rate. Assigning to it, filling it
+    (``self.x.update(...)``, ``self.x[k] = ...``) and reading other attributes of it are not uses."""
+    parent = parents.get(node)
+    if isinstance(parent, ast.Subscript) and parent.value is node:
+        node, parent = parent, parents.get(parent)
+    if isinstance(parent, ast.Call):
+        return parent.func is node or node in parent.args or any(k.value is node for k in parent.keywords)
+    if isinstance(parent, ast.Attribute):
+        return parent.attr in RATE_ATTRS
+    if isinstance(parent, ast.Assign):
+        return parent.value is node
+    if isinstance(parent, (ast.AnnAssign, ast.AugAssign)):
+        return parent.value is node
+    if isinstance(parent, ast.For):
+        return parent.iter is node
+    return isinstance(parent, (ast.Return, ast.Yield, ast.BinOp, ast.Compare, ast.IfExp, ast.Tuple, ast.List,
+                               ast.Dict, ast.Starred, ast.keyword, ast.FormattedValue, ast.Await, ast.BoolOp))
+
+
+def _dropouts_never_applied(tree: ast.Module, path: str, source_lines: Sequence[str]) -> List[Finding]:
+    """The ``dropout-never-applied`` rule: a file-level pass, since the module is built in one method and used, if
+    at all, in another, or in a sibling class of the same file. Subclasses of ``Sequential`` run every attribute
+    in order and are not read."""
+    parents: dict = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    used: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and _applied(node, parents):
+            used.add(node.attr)
+    findings: List[Finding] = []
+    for cls in ast.walk(tree):
+        if not isinstance(cls, ast.ClassDef) or any(ast.unparse(b).endswith("Sequential") for b in cls.bases):
+            continue
+        for fn in cls.body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in _own_nodes(fn):
+                if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                    continue
+                target = node.targets[0]
+                if not (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)
+                        and target.value.id == "self"):
+                    continue
+                if target.attr not in used and _dropout_like(node.value, target.attr):
+                    qualname = cls.name + "." + fn.name
+                    findings.append(Finding("dropout-never-applied", path, node.lineno, qualname,
+                                            source_lines[node.lineno - 1].strip()[:160]))
+    return findings
+
+
 def scan_source(source: str, path: str = "<string>") -> Tuple[List[Finding], List[HotSpot]]:
     try:
         with warnings.catch_warnings():
@@ -669,6 +748,7 @@ def scan_source(source: str, path: str = "<string>") -> Tuple[List[Finding], Lis
         findings.extend(f)
         if spot.calls:
             spots.append(spot)
+    findings.extend(_dropouts_never_applied(tree, path, lines))
     return findings, spots
 
 

@@ -220,9 +220,9 @@ ulpwise scan path/to/repo --rules one-minus-cos,small-angle-division --top 40
 ```
 
 The scan is static and needs nothing installed: it parses each file with `ast`, walks every
-function and matches fifteen patterns, each with a severity, the reason it loses digits,
-overflows or loses its gradient, the usual replacement and, where one exists, the upstream bug it
-comes from.
+function and matches sixteen patterns, each with a severity, the reason it loses digits,
+overflows or loses its gradient, or in one case does nothing at all, the usual replacement and,
+where one exists, the upstream bug it comes from.
 
 | rule | severity | pattern |
 |---|---|---|
@@ -240,6 +240,7 @@ comes from.
 | `eps-floor` | medium | `x * (1 - eps) + eps`: every value moves, 0 becomes `eps`, so a one-hot's entries sum to `1 + (C - 1) eps` and a perfect prediction scores a loss that grows with the image (kornia #5538, found by the kornia conventions audit) |
 | `where-nan-gradient` | medium | `where(d > eps, f(d), other)` with `f` a division by `d` or a `sqrt`, `log`, `acos` or `asin` of it: `where` evaluates both branches and hands the discarded one a zero gradient, and the backward of `f` at the singularity turns that zero into `0 / 0 = nan`, so the guard protects the value and not the gradient; quiet for `numpy.where`, for a comparison against a number above 1, for a floor named `eps`, `tol` or `floor` on the other side, and once `d` is re-bound to a `where`, `clamp` or `maximum` of itself (kornia #5579, found by the kornia conventions audit) |
 | `clamp-at-singularity` | medium | `clamp(x, min=0).sqrt()`, `sqrt(clamp(x, min=0))`, `clamp(c, -1, 1).acos()`: the bound is the point where the next function has an infinite derivative, and clamp's derivative at its own bound is not the same across torch versions, 1 on 2.5.1 and 2.9.1 and 0 on 2.14, so the gradient there is `inf` or `nan` on the older half of a supported range; a bound strictly inside the domain, `min=1e-8`, is a floor and is not reported, and `numpy` is quiet (kornia #4229, found by the kornia conventions audit; kornia #5500) |
+| `dropout-never-applied` | medium | a `Dropout`, `DropPath` or a `ModuleDict` of them assigned to `self` and then never called, never passed on and its rate never read, anywhere in the file: the option is accepted and does nothing, so the model trains without the regularisation it reports (peft #3830) |
 
 On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 findings. The
 `one-minus-cos` and `small-angle-division` findings are the four lines of `So3.right_jacobian` and
@@ -254,6 +255,19 @@ report seven lines: three `clamp` bounds in `_solve_cubic_real`, and four `where
 `_get_convex_edges`, of which the first two sit on a differentiable path and the last two draw
 boxes and polygons. On ultralytics `main` at `8df3534` they report three lines, all in metrics or
 inference code that is never differentiated, and nothing in torchvision.
+
+`dropout-never-applied` reads the whole file rather than one function, since the module is built
+in `__init__` and used, if at all, in `forward` or in a sibling class. Calling it, calling it
+through a subscript, passing it to another module, returning it, iterating over it and reading
+its rate (`scaled_dot_product_attention(dropout_p=self.dropout.p)`) all count as use; filling it
+(`self.oft_dropout.update(...)`) does not, and a subclass of `Sequential` runs every attribute and
+is not read. On kornia `main` at `6d579a72`, ultralytics `6d51b7e`, torchvision `9a8d545`,
+diffusers `d961a38`, torchrl `648f50c`, vllm `73c742b` and detectron2 `1e3e13b` it reports
+nothing. On peft `main` at `f6d8480` it reports `OFTLayer.oft_dropout`, which is #3830; on timm
+`83e6eb5` it reports `FactorAttnConvRelPosEnc.attn_drop` in `coat.py`, which a comment on that
+line already calls unused; on transformers `9167f73` it reports nine lines, four of them in
+modular files whose `forward` is inherited from another file, which the rule cannot see, and
+five attention, embedding and head dropouts built in `__init__` and used nowhere in their file.
 
 `--run` adds the dynamic half. The module level functions with the most elementary math are
 imported and called with the same 91 point grid (both signs of `1e-8` to `1e3`, and zero) for every
