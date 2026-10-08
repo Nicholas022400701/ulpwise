@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `ulpwise scan`: new `where-nan-gradient` rule (medium) for `where(d > eps, f(d), other)` with `f` a division by `d`
+  or a `sqrt`, `log`, `acos` or `asin` of it. `where` evaluates both branches and hands the discarded one a zero
+  gradient, and the backward of `f` at the singularity turns that zero into `0 / 0 = nan`, so the guard protects the
+  value and not the gradient. kornia #5579, found by the kornia conventions audit, is the example: the mutual
+  information losses divided by the range of the signal inside `where(diff > eps, ...)` and a constant input or
+  target got a nan gradient. The condition may be a comparison, a name bound to one, or `~`, `&`, `|` and a subscript
+  of those, and the method form `a.where(cond, b)` counts. Quiet for `numpy.where`, which has no autograd, for a
+  comparison against a number above 1 (`strength < 50` in kornia's JPEG scale is a piecewise definition), for a
+  floor named `eps`, `tol`, `floor`, `thresh`, `tiny`, `bound` or `limit` on the other side of the comparison, and
+  once `d` is re-bound to a `where`, `clamp` or `maximum` of itself, which is the recommended fix and the shape of
+  kornia's `fit_line` and `rotation_matrix_to_quaternion`. On kornia main d15741e2 the rule reports four lines, on
+  ultralytics main 8df3534 two, both in metric code, and nothing in torchvision.
+- `ulpwise scan`: new `clamp-at-singularity` rule (medium) for `clamp(x, min=0).sqrt()`, `sqrt(clamp(x, min=0))`,
+  `clamp(c, -1, 1).acos()` and the `clip`, `clamp_min`, `clamp_max`, `asin` and `log` forms: the bound is the point
+  where the next function has an infinite derivative, and clamp's derivative at its own bound is 1 on torch 2.5.1 and
+  2.9.1 and 0 on 2.14, so the gradient there is `inf` or `nan` on the older half of a supported range. kornia #4229,
+  found by the kornia conventions audit, is the example, `_cdist`'s `clamp(min=0.0).sqrt()` with identical float16
+  descriptors, and kornia #5500's `clamp(-1, 1).acos()` the second. A bound strictly inside the domain, `min=1e-8`,
+  is a floor and is not reported, a bound given by a name is not read, and numpy is quiet. On kornia main d15741e2
+  the rule reports the three lines of `_solve_cubic_real`, on ultralytics main 8df3534 one line of `DepthMetrics`.
+- `ulpwise scan`: a finding inside a nested function is reported once, under the nested function, instead of once
+  more under the enclosing one, and the enclosing function's call and division counts no longer include it.
 - `ulpwise scan`: new `eps-floor` rule (medium) for `x * (1 - eps) + eps`, in either order and with `self.eps` too: the
   floor moves every value, 0 becomes `eps` and 1 stays 1, so the entries of a one-hot sum to `1 + (C - 1) eps` and a
   perfect prediction scores a loss that grows with the image. kornia #5538, found by the kornia conventions audit, is

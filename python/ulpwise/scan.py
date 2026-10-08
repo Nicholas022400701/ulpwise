@@ -124,6 +124,18 @@ RULES = {
         "keep the values exact and add eps only to the log argument or the denominator that needs it, or default eps to 0",
         "kornia #5538 (found by the kornia conventions audit), one_hot floored its zeros with 1e-6 and a perfect prediction scored a macro Dice loss of 0.0234 on a 256 x 384 image",
     ),
+    "where-nan-gradient": (
+        "medium",
+        "where(d > eps, f(d), other) with f a division by d or a sqrt, log, acos or asin of it: where evaluates both branches and hands the discarded one a zero gradient, and the backward of a division or a sqrt at zero turns that zero into 0 / 0 = nan, which reaches the inputs at exactly the points the guard was written for; the forward value is right, only the gradient is lost, so this matters in a loss or a layer and not in a metric that is never differentiated; numpy has no autograd and only warns",
+        "substitute inside the branch that gets differentiated: safe = where(d > eps, d, ones_like(d)), then divide by safe or take the sqrt or log of safe, so that the discarded branch is finite too",
+        "kornia #5579 (found by the kornia conventions audit), the mutual information losses divided by the range of the signal inside where(diff > eps, ...) and a constant input or target got a nan gradient",
+    ),
+    "clamp-at-singularity": (
+        "medium",
+        "clamp(x, min=0).sqrt(), sqrt(clamp(x, min=0)), clamp(c, -1, 1).acos(): the clamp bound is the point where the derivative of the next function is infinite, and on torch 2.5.1 and 2.9.1 clamp hands the incoming gradient through at its own bound, so the gradient there is inf or nan (torch 2.14 returns 0 at the bound, which hides it on the newer half of a supported range); a clamp to a value strictly inside the domain, such as min=1e-8, is a floor and is not reported",
+        "take the value from the real argument and the gradient from a safe one, f(where(at_bound, safe, x)) with the value fixed up by where, or atan2 instead of acos for an angle",
+        "kornia #4229 (found by the kornia conventions audit), _cdist's clamp(min=0.0).sqrt() gave nan gradients for identical float16 descriptors on torch 2.5.1; kornia #5500, clamp(-1, 1).acos() in angle_error_mat had a -inf backward at exactly 0 and 180 degrees on torch 2.5.1",
+    ),
 }
 SEVERITY_ORDER = {"high": 0, "medium": 1, "info": 2}
 
@@ -328,6 +340,189 @@ def _is_eps_floor(node: ast.AST) -> bool:
     return False
 
 
+SINGULAR_AT_ZERO = {"sqrt", "rsqrt", "log", "log2", "log10"}
+SINGULAR_AT_ONE = {"acos", "arccos", "asin", "arcsin", "atanh", "arctanh"}
+CLAMP = {"clamp", "clip", "clamp_min", "clamp_max"}
+NUMPY_MODULES = {"np", "numpy"}
+
+
+def _bare(node: ast.AST) -> Optional[ast.AST]:
+    """The quantity a comparison tests, with unary minus, ``abs``, a square and a subscript such as
+    ``mask[..., None]`` stripped: ``theta.abs() < eps`` and ``theta_sq > 0`` test ``theta`` and ``theta_sq``."""
+    node = _strip(node)
+    while True:
+        name, arg = _callee(node)
+        if name in {"abs", "absolute"} and arg is not None:
+            node = _strip(arg)
+            continue
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            node = _strip(node.left)
+            continue
+        break
+    if isinstance(node, ast.Constant):
+        return None
+    identifier = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""
+    if _THRESHOLD.search(identifier):
+        return None  # var > floor, r > radicand_floor: the floor is the threshold, not the quantity
+    return node
+
+
+_THRESHOLD = re.compile(r"eps|tol|floor|thresh|tiny|bound|limit", re.I)
+SAFE_MAKERS = {"where", "clamp", "clip", "clamp_min", "maximum"}
+
+
+def _made_safe(fn: ast.AST) -> dict:
+    """Names re-bound in ``fn`` to a ``where``, ``clamp`` or ``maximum`` of themselves, with the line of the
+    re-binding: after ``w_sum = where(has_weight, w_sum, ones_like(w_sum))`` a division by ``w_sum`` is safe."""
+    out: dict = {}
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target = node.targets[0].id
+            value = _strip(node.value)
+            name, _ = _callee(value)
+            if name in SAFE_MAKERS and any(isinstance(sub, ast.Name) and sub.id == target for sub in ast.walk(value)):
+                out[target] = min(node.lineno, out.get(target, node.lineno))
+    return out
+
+
+def _comparisons(fn: ast.AST) -> dict:
+    """Names bound in ``fn`` to a comparison, with the quantities that comparison tests: ``small = theta.abs() < 1e-4``
+    gives ``{"small": [theta]}``."""
+    out: dict = {}
+    for node in ast.walk(fn):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            tested = _tested(node.value, {})
+            if tested:
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        out[target.id] = tested
+    return out
+
+
+def _tested(cond: ast.AST, comparisons: dict) -> List[ast.AST]:
+    """The quantities compared in ``cond``: the two sides of every comparison in it, through ``~``, ``&``, ``|`` and a
+    subscript, and the comparisons behind the names bound in ``comparisons``."""
+    out: List[ast.AST] = []
+    for sub in ast.walk(cond):
+        if isinstance(sub, ast.Compare):
+            sides = [sub.left] + sub.comparators
+            if any(abs(_number(side) or 0) > 1 for side in sides):
+                continue  # strength < 50 is a piecewise definition, not a guard at a singularity
+            for side in sides:
+                quantity = _bare(side)
+                if quantity is not None:
+                    out.append(quantity)
+        elif isinstance(sub, ast.Name) and sub.id in comparisons:
+            out.extend(comparisons[sub.id])
+    return out
+
+
+def _singular_use(branch: ast.AST, tested: Sequence[ast.AST]) -> bool:
+    """``branch`` divides by one of ``tested``, raises it to a negative or fractional power, or takes the sqrt, log,
+    acos or asin of it, so that its derivative is infinite where the comparison fails."""
+    for sub in ast.walk(branch):
+        if isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.Div):
+            den = _strip(sub.right)
+            if isinstance(den, ast.BinOp) and isinstance(den.op, ast.Pow):
+                den = _strip(den.left)
+            if any(_same(den, t) for t in tested):
+                return True
+        if isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.Pow):
+            exponent = sub.right
+            negative = isinstance(exponent, ast.UnaryOp) and isinstance(exponent.op, ast.USub)
+            exponent = _strip(exponent)
+            if isinstance(exponent, ast.Constant) and isinstance(exponent.value, (int, float)):
+                if negative or exponent.value != int(exponent.value):
+                    if any(_same(_strip(sub.left), t) for t in tested):
+                        return True
+        name, arg = _callee(sub)
+        if name in SINGULAR_AT_ZERO | SINGULAR_AT_ONE and arg is not None:
+            if any(_same(_strip(arg), t) for t in tested):
+                return True
+    return False
+
+
+def _where_parts(node: ast.AST) -> Optional[Tuple[ast.AST, List[ast.AST]]]:
+    """(condition, branches) of ``where(cond, a, b)``, ``torch.where(cond, a, b)`` and the method form
+    ``a.where(cond, b)``; None for anything else, including ``numpy.where``, which has no autograd."""
+    name, _ = _callee(node)
+    if name != "where" or not isinstance(node, ast.Call):
+        return None
+    fn = node.func
+    if isinstance(fn, ast.Attribute):
+        module = fn.value
+        if isinstance(module, ast.Name) and module.id in NUMPY_MODULES:
+            return None
+        if len(node.args) == 2:  # a.where(cond, b)
+            return node.args[0], [module, node.args[1]]
+    if len(node.args) >= 3:
+        return node.args[0], [node.args[1], node.args[2]]
+    return None
+
+
+def _number(node: ast.AST) -> Optional[float]:
+    negative = isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+    node = _strip(node)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return -node.value if negative else node.value
+    return None
+
+
+MODULES = {"torch", "np", "numpy", "jnp", "jax", "tf", "F"}
+
+
+def _clamp_bounds(node: ast.AST) -> Optional[Tuple[Optional[float], Optional[float]]]:
+    """(lower, upper) of a ``clamp`` / ``clip`` call whose bounds are literal numbers; a bound given by a name is None,
+    and the result is None when ``node`` is not a clamp."""
+    if not isinstance(node, ast.Call):
+        return None
+    name, _ = _callee(node)
+    if name not in CLAMP:
+        return None
+    positional = list(node.args)
+    fn = node.func
+    module_form = isinstance(fn, ast.Name) or (
+        isinstance(fn, ast.Attribute)
+        and (isinstance(fn.value, ast.Attribute) or (isinstance(fn.value, ast.Name) and fn.value.id in MODULES))
+    )
+    if module_form and positional:
+        positional = positional[1:]  # clamp(x, lo, hi), torch.clamp(x, lo, hi): the first argument is the value
+    lo = hi = None
+    if name == "clamp_max":
+        hi = _number(positional[0]) if positional else None
+    else:
+        lo = _number(positional[0]) if positional else None
+        hi = _number(positional[1]) if len(positional) > 1 else None
+    for kw in node.keywords:
+        if kw.arg in {"min", "a_min"}:
+            lo = _number(kw.value)
+        elif kw.arg in {"max", "a_max"}:
+            hi = _number(kw.value)
+    return lo, hi
+
+
+def _numpy_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    return isinstance(node.func.value, ast.Name) and node.func.value.id in NUMPY_MODULES
+
+
+def _clamp_at_singularity(name: str, node: ast.AST, arg: ast.AST) -> bool:
+    """``f(clamp(x, ...))`` where a clamp bound is the point at which ``f`` has an infinite derivative; quiet for
+    numpy, which has no autograd."""
+    arg = _strip(arg)
+    bounds = _clamp_bounds(arg)
+    if bounds is None or _numpy_call(node) or _numpy_call(arg):
+        return False
+    lo, hi = bounds
+    if name in SINGULAR_AT_ZERO:
+        return lo == 0
+    if name in SINGULAR_AT_ONE:
+        return lo == -1 or hi == 1
+    return False
+
+
 def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: Sequence[str]) -> Tuple[List[Finding], HotSpot]:
     findings: List[Finding] = []
     calls = 0
@@ -335,6 +530,8 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
     names: List[str] = []
     angles = _angle_names(fn)
     maxima, shifted = _maxima_and_shifted(fn)
+    comparisons = _comparisons(fn)
+    made_safe = _made_safe(fn)
     fn_source = "\n".join(source_lines[fn.lineno - 1 : getattr(fn, "end_lineno", fn.lineno)])
     guarded = bool(_GUARD.search(fn_source))
 
@@ -342,7 +539,7 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
         line = getattr(node, "lineno", fn.lineno)
         findings.append(Finding(rule, path, line, qualname, source_lines[line - 1].strip()[:160]))
 
-    for node in ast.walk(fn):
+    for node in _own_nodes(fn):
         name, arg = _callee(node)
         if name in ELEMENTARY:
             calls += 1
@@ -357,6 +554,14 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
                 add("small-angle-division", node)
         if _is_eps_floor(node):
             add("eps-floor", node)
+        parts = _where_parts(node)
+        if parts is not None:
+            tested = [
+                t for t in _tested(parts[0], comparisons)
+                if not (isinstance(t, ast.Name) and made_safe.get(t.id, node.lineno) < node.lineno)
+            ]
+            if tested and any(_singular_use(branch, tested) for branch in parts[1]):
+                add("where-nan-gradient", node)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
             left, right = _strip(node.left), _strip(node.right)
             rn, _ = _callee(right)
@@ -368,6 +573,8 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
         if name is None or arg is None:
             continue
         inner = _strip(arg)
+        if name in SINGULAR_AT_ZERO | SINGULAR_AT_ONE and _clamp_at_singularity(name, node, inner):
+            add("clamp-at-singularity", node)
         if name in EXP and _is_square(inner):
             add("exp-of-square", node)
         elif name in SIN:
@@ -403,6 +610,17 @@ def _findings_for_function(fn: ast.AST, qualname: str, path: str, source_lines: 
     seen = set()
     findings = [f for f in findings if not ((f.rule, f.line) in seen or seen.add((f.rule, f.line)))]
     return findings, HotSpot(path, fn.lineno, qualname, calls, divisions, sorted(set(names)))
+
+
+def _own_nodes(fn: ast.AST) -> Iterable[ast.AST]:
+    """The nodes of ``fn`` without those of a nested function or class, which ``_functions`` lists on their own."""
+    stack = [fn]
+    while stack:
+        node = stack.pop()
+        yield node
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                stack.append(child)
 
 
 def _functions(tree: ast.Module) -> Iterable[Tuple[ast.AST, str]]:

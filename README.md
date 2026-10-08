@@ -218,8 +218,9 @@ ulpwise scan path/to/repo --rules one-minus-cos,small-angle-division --top 40
 ```
 
 The scan is static and needs nothing installed: it parses each file with `ast`, walks every
-function and matches thirteen patterns, each with a severity, the reason it loses digits or
-overflows, the usual replacement and, where one exists, the upstream bug it comes from.
+function and matches fifteen patterns, each with a severity, the reason it loses digits,
+overflows or loses its gradient, the usual replacement and, where one exists, the upstream bug it
+comes from.
 
 | rule | severity | pattern |
 |---|---|---|
@@ -235,6 +236,8 @@ overflows, the usual replacement and, where one exists, the upstream bug it come
 | `small-angle-division` | medium | `/ theta`, `/ theta ** 2`, `/ sin(theta)` in a function that takes `sin` or `cos` of `theta` and has no `where`, `clamp`, `eps` or series in sight (kornia #4838, #4897) |
 | `acos-for-angle` | medium | `acos`, `asin` used to recover an angle: the angle comes back with an absolute error of `sqrt(eps)`, 0.02 degrees in float32 (kornia #5500) |
 | `eps-floor` | medium | `x * (1 - eps) + eps`: every value moves, 0 becomes `eps`, so a one-hot's entries sum to `1 + (C - 1) eps` and a perfect prediction scores a loss that grows with the image (kornia #5538, found by the kornia conventions audit) |
+| `where-nan-gradient` | medium | `where(d > eps, f(d), other)` with `f` a division by `d` or a `sqrt`, `log`, `acos` or `asin` of it: `where` evaluates both branches and hands the discarded one a zero gradient, and the backward of `f` at the singularity turns that zero into `0 / 0 = nan`, so the guard protects the value and not the gradient; quiet for `numpy.where`, for a comparison against a number above 1, for a floor named `eps`, `tol` or `floor` on the other side, and once `d` is re-bound to a `where`, `clamp` or `maximum` of itself (kornia #5579, found by the kornia conventions audit) |
+| `clamp-at-singularity` | medium | `clamp(x, min=0).sqrt()`, `sqrt(clamp(x, min=0))`, `clamp(c, -1, 1).acos()`: the bound is the point where the next function has an infinite derivative, and clamp's derivative at its own bound is not the same across torch versions, 1 on 2.5.1 and 2.9.1 and 0 on 2.14, so the gradient there is `inf` or `nan` on the older half of a supported range; a bound strictly inside the domain, `min=1e-8`, is a floor and is not reported, and `numpy` is quiet (kornia #4229, found by the kornia conventions audit; kornia #5500) |
 
 On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 findings. The
 `one-minus-cos` and `small-angle-division` findings are the four lines of `So3.right_jacobian` and
@@ -242,6 +245,13 @@ On kornia `main` at `e05b0ee` the scan takes 4 s for 506 files and reports 35 fi
 and `Se3.exp` (also #4897) is under `one-minus-cos`. The scan puts `ellipse_to_laf` (kornia #4768)
 on the list too, for a `sqrt` of a difference; the bug there was a different one, so that entry is
 what the scan is: a reading list, not a verdict.
+
+The two gradient rules are reading lists in the same sense. On kornia `main` at `d15741e2` they
+report seven lines: three `clamp` bounds in `_solve_cubic_real`, and four `where` guards, in
+`PatchDominantGradientOrientation`, `compute_correspond_epilines`, `_crop_scale_translation` and
+`_get_convex_edges`, of which the first two sit on a differentiable path and the last two draw
+boxes and polygons. On ultralytics `main` at `8df3534` they report three lines, all in metrics or
+inference code that is never differentiated, and nothing in torchvision.
 
 `--run` adds the dynamic half. The module level functions with the most elementary math are
 imported and called with the same 91 point grid (both signs of `1e-8` to `1e3`, and zero) for every

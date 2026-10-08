@@ -12,6 +12,7 @@ from ulpwise import scan
 SNIPPET = textwrap.dedent(
     '''
     import math
+    import numpy as np
     import torch
 
 
@@ -69,9 +70,77 @@ SNIPPET = textwrap.dedent(
 
 
     def so3_jacobian_guarded(theta, w):
+        # quiet for small-angle-division, but the discarded branch still differentiates sin(theta) / theta at 0
         small = theta.abs() < 1e-4
         s = torch.where(small, 1 - theta ** 2 / 6, torch.sin(theta) / theta)
         return w / s
+
+
+    def so3_jacobian_safe(theta, w):
+        small = theta.abs() < 1e-4
+        safe_theta = torch.where(small, torch.ones_like(theta), theta)
+        s = torch.where(small, 1 - theta ** 2 / 6, torch.sin(safe_theta) / safe_theta)
+        return w / s
+
+
+    def normalize_signal(data, eps):
+        min_val, _ = data.min(dim=-1)
+        diff = (data.max(dim=-1)[0] - min_val).unsqueeze(-1)
+        return torch.where(diff > eps, (data - min_val.unsqueeze(-1)) / diff, 0.0)
+
+
+    def sqrt_where(theta_sq):
+        nonzero = theta_sq > 0
+        return torch.where(nonzero[..., None], theta_sq.sqrt(), 0.0)
+
+
+    def where_unrelated(x, y):
+        return torch.where(x > 0, x / y, 0.0)
+
+
+    def where_numpy(x, d):
+        return np.where(d > 0, x / d, 0.0)
+
+
+    def cdist_tail(dm):
+        return dm.clamp(min=0.0).sqrt()
+
+
+    def angle_from_trace(w):
+        return torch.acos(torch.clamp(w, -1.0, 1.0))
+
+
+    def floored_sqrt(x):
+        return torch.sqrt(x.clamp(min=1e-8))
+
+
+    def np_arc(dot):
+        return np.arccos(np.clip(dot, -1, 1))
+
+
+    def piecewise_scale(strength):
+        return torch.where(strength < 50, 5000.0 / strength, 200.0 - 2.0 * strength)
+
+
+    def floored_std(var):
+        floor = torch.full_like(var, 1e-10)
+        above = var > floor
+        safe_var = torch.where(above, var, torch.ones_like(var))
+        return torch.where(above, safe_var.sqrt(), floor.sqrt())
+
+
+    def rebound_mean(w, x):
+        w_sum = w.sum(-1)
+        has_weight = w_sum != 0
+        w_sum = torch.where(has_weight, w_sum, torch.ones_like(w_sum))
+        return torch.where(has_weight, (w * x).sum(-1) / w_sum, x.mean(-1))
+
+
+    def outer(x):
+        def inner(y):
+            return torch.exp(y * y)
+
+        return inner(x)
 
 
     def one_hot_floor(labels, eps):
@@ -102,6 +171,7 @@ SNIPPET = textwrap.dedent(
 EXPECTED = {
     ("exp-of-square", "erfcx_neg"),
     ("exp-of-square", "misc"),
+    ("exp-of-square", "outer.inner"),
     ("sin-of-pi-times", "trigamma_reflect"),
     ("softplus-by-hand", "softplus"),
     ("logsumexp-by-hand", "lse"),
@@ -114,6 +184,13 @@ EXPECTED = {
     ("eps-floor", "Smoother.forward"),
     ("one-minus-cos", "so3_jacobian"),
     ("small-angle-division", "so3_jacobian"),
+    ("where-nan-gradient", "so3_jacobian_guarded"),
+    ("where-nan-gradient", "normalize_signal"),
+    ("where-nan-gradient", "sqrt_where"),
+    ("clamp-at-singularity", "cdist_tail"),
+    ("clamp-at-singularity", "angle_from_trace"),
+    ("acos-for-angle", "angle_from_trace"),
+    ("acos-for-angle", "np_arc"),
     ("log1p-by-hand", "misc"),
     ("expm1-by-hand", "misc"),
     ("atan-of-quotient", "misc"),
@@ -125,8 +202,14 @@ def test_every_rule_fires_once_on_its_snippet_and_the_guard_silences_it():
     findings, spots = scan.scan_source(SNIPPET, "demo.py")
     assert {(f.rule, f.function) for f in findings} == EXPECTED
     assert {rule for rule, _ in EXPECTED} == set(scan.RULES)  # every rule has a snippet
-    assert sum(f.rule == "exp-of-square" for f in findings) == 3  # x * x, x.pow(2), square(x)
-    assert not [f for f in findings if f.function in {"so3_jacobian_guarded", "lse_shifted", "lse_shifted_inline", "eps_guard"}]
+    assert sum(f.rule == "exp-of-square" for f in findings) == 4  # x * x, x.pow(2), square(x), once in outer.inner
+    quiet = {
+        "so3_jacobian_safe", "where_unrelated", "where_numpy", "floored_sqrt", "piecewise_scale", "floored_std",
+        "rebound_mean", "outer", "lse_shifted", "lse_shifted_inline", "eps_guard",
+    }
+    assert not [f for f in findings if f.function in quiet]
+    assert [f.rule for f in findings if f.function == "so3_jacobian_guarded"] == ["where-nan-gradient"]
+    assert [f.rule for f in findings if f.function == "np_arc"] == ["acos-for-angle"]  # numpy has no autograd
     assert all(f.snippet and f.line > 0 and f.path == "demo.py" for f in findings)
     busiest = max(spots, key=lambda s: s.calls)
     assert busiest.function == "misc" and busiest.calls == 7 and "exp" in busiest.names
@@ -157,7 +240,7 @@ def test_scan_tree_skips_tests_and_reports(tmp_path):
     with pytest.raises(ValueError):
         scan.checkout("not a repository at all")
     text = scan.render(findings, spots, "pkg", None, nfiles)
-    assert text.startswith("ulpwise scan of pkg: 2 files") and "exp-of-square [high] x3" in text
+    assert text.startswith("ulpwise scan of pkg: 2 files") and "exp-of-square [high] x4" in text
     md = scan.render(findings, spots, "pkg", "abc123", nfiles, top=3, markdown=True)
     assert md.startswith("# ulpwise scan of pkg @ abc123") and "| calls |" in md and md.count("\n| ") == 4
 
@@ -171,7 +254,7 @@ def test_scan_cli(tmp_path, capsys):
     assert "findings" in capsys.readouterr().out and report.read_text().startswith("# ulpwise scan of")
     assert main(["scan", str(tmp_path), "--rules", "acos-for-angle", "--fail-on", "high"]) == 0
     out = capsys.readouterr().out
-    assert "acos-for-angle [medium] x1" in out and "exp-of-square" not in out
+    assert "acos-for-angle [medium] x3" in out and "exp-of-square" not in out
     assert main(["scan", str(tmp_path), "--rules", "no-such-rule"]) == 2
     assert main(["scan", str(tmp_path / "missing")]) == 2
 
