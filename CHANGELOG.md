@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 (2026-10-09)
 
 - Regression corpus case for pytorch/rl #4504, merged upstream: `MultiCategorical.to_one_hot` iterated over `self.nvec`,
   a 2-D tensor for a spec with a batch shape, so `one_hot` got a tensor as `num_classes` and raised `TypeError`, and the
