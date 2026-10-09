@@ -156,6 +156,7 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 | pytorch/rl #4443 `arange(0, 1, 1/n)` gives `n + 1` positions for 140 values of `n` below 2000 | rounding | 2026-09-20 |
 | pytorch/rl #4444 `min_value or -inf` drops `min_value=0` | falsy zero | 2026-09-20 |
 | pytorch/rl #4445 scheduler `state_dict()` contained a module object | crash | 2026-09-20 |
+| pytorch/rl #4504 `MultiCategorical.to_one_hot` crashed for a batched spec and a 0-D sample | crash | 2026-10-07 |
 | timm #2786 Mars kept a reference to `p.grad` as the previous gradient | aliasing | 2026-09-17 |
 | timm #2790 AdafactorBigVision clipped updates in the wrong direction | direction | 2026-09-18 |
 | timm #2791 AdaMuon conv LR scale computed from the wrong dims | scale | 2026-09-18 |

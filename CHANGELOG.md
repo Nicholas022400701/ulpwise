@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Regression corpus case for pytorch/rl #4504, merged upstream: `MultiCategorical.to_one_hot` iterated over `self.nvec`,
+  a 2-D tensor for a spec with a batch shape, so `one_hot` got a tensor as `num_classes` and raised `TypeError`, and the
+  0-D sample of a shape `[1]` spec raised `IndexError` on `val[..., i]`. The case one-hot encodes a sample of
+  `MultiCategorical([3, 2], shape=(4, 2))` and the scalar sample of `MultiCategorical([5])`.
 - `ulpwise scan`: new `dropout-never-applied` rule (medium), the first that reads a whole file rather than one
   function: a `Dropout`, `DropPath` or a `ModuleDict` or `ModuleList` under a dropout name is assigned to `self`
   and then never called, never passed on, never returned or iterated and its rate never read, anywhere in the file.

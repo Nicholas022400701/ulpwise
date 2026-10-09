@@ -144,6 +144,25 @@
    "before_fix": "TypeError: cannot pickle 'module' object"
   },
   {
+   "id": "torchrl-4504-multicategorical-to-one-hot-batched-spec",
+   "repo": "pytorch/rl",
+   "pr": 4504,
+   "merged_at": "2026-10-07T10:30:35Z",
+   "kind": "crash",
+   "title": "MultiCategorical.to_one_hot crashed for a spec with a batch shape and for the scalar sample of a shape [1] spec",
+   "symptom": "to_one_hot iterated over self.nvec, which is a 2-D tensor for a spec with a batch shape, so one_hot received a tensor as num_classes and raised TypeError; a shape [1] spec returns 0-D samples and val[..., i] on them raised IndexError.",
+   "requires": [
+    "torch",
+    "torchrl"
+   ],
+   "fixed_in_release": null,
+   "repro": "import torch\nfrom torchrl.data import MultiCategorical\nspec = MultiCategorical([3, 2], shape=(4, 2))\nhot = spec.to_one_hot(spec.rand())\nscalar = MultiCategorical([5]).to_one_hot(torch.tensor(3))\nactual = [list(hot.shape), hot.dtype == torch.bool, int(hot.sum()), list(scalar.shape), int(scalar.sum()), bool(scalar[3])]\nexpected = [[4, 5], True, 8, [5], 1, True]\n",
+   "check": {
+    "type": "equal"
+   },
+   "before_fix": "TypeError: one_hot(): argument 'num_classes' (position 2) must be int, not Tensor for the batched spec; IndexError: too many indices for tensor of dimension 0 for the scalar sample"
+  },
+  {
    "id": "timm-2786-mars-last-grad-aliasing",
    "repo": "huggingface/pytorch-image-models",
    "pr": 2786,
