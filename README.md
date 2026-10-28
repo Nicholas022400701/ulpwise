@@ -144,7 +144,7 @@ environment, side-install it and put it first on the path:
 
 ```sh
 pip install --no-deps --target /tmp/kornia-0.8.3 kornia==0.8.3
-PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fixed on kornia 0.8.3
+PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 34 present, 0 fixed on kornia 0.8.3; 0 present, 34 fixed on 0.9.0
 ```
 
 | case | kind | merged |
@@ -201,13 +201,15 @@ PYTHONPATH=/tmp/kornia-0.8.3 ulpwise corpus --repo kornia     # 31 present, 0 fi
 | pytorch #199850 `torch.erf` in bfloat16 and float16 on CPU returns 0 at and below 1.8e-7 and loses relative accuracy below 1e-3 (13404 bfloat16 ulps, 5 float16 ulps) | cancellation | open |
 | pytorch #199867 `torch.special.logit` in float16 and bfloat16 on CPU rounds `1 - x` and `x / (1 - x)` to the input dtype before the log, logit(0.499756) is -0.000488 for -0.000977 (512 float16 ulps, 64 bfloat16 ulps) | rounding | open |
 | kornia #5505 `angle_error_mat` and `angle_error_vec` returned exactly 0 for every rotation below 0.03 degrees in float32 (`acos` next to 1, issue #5500) | cancellation | 2026-10-06 |
+| kornia #5653 `gftt_response` had a nan gradient on every flat patch, `sqrt` of a zero discriminant (issue #5652) | gradient | 2026-10-09 |
+| kornia #5655 `equalize_clahe` wrote the clipping residual into the first histogram bins, small tiles tens of levels brighter than OpenCV (issue #5654) | redistribution | 2026-10-09 |
 | peft #3769 `add_weighted_adapter` with `combination_type='svd'` crashed for Conv1d and Conv3d LoRA layers | crash | open |
 | peft #3830 OFT `module_dropout` was never applied, every training forward used all rotation blocks | no-op | open |
 
 Cases marked `open` have an issue with the complete patch attached and no merged fix yet. Every case
 is an expected failure until the installed release contains the fix (`fixed_in_release` in
-`cases.json`; the timm and ultralytics fixes above are released, the kornia, pytorch/rl, peft and
-pytorch ones are merged but not in a release yet), and the `max_ulp` check type measures the digits
+`cases.json`; the timm, ultralytics, kornia (0.9.0) and pytorch/rl (0.14.1) fixes above are released,
+the peft and pytorch ones are merged but not in a release yet), and the `max_ulp` check type measures the digits
 directly. The ultralytics dataset and label cases build their one-image
 dataset in a temporary directory and need no weights; two more ultralytics fixes (#26240, #26246) are not in
 the corpus yet because their repros need model weights or the COCO evaluator.

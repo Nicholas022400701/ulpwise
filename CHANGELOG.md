@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- kornia 0.9.0 (released 2026-10-23) contains every kornia fix in the corpus and torchrl 0.14.1 (2026-10-10) the four
+  pytorch/rl ones, so `fixed_in_release` is set on those 36 cases and they are plain passes instead of expected
+  failures. The weekly strict run had been failing on them as unexpected passes since 2026-10-12, the four torchrl
+  cases first and all 36 on 2026-10-26.
+- Two more kornia cases, both merged upstream on 2026-10-09 and in 0.9.0. #5653: `gftt_response` took the smaller
+  eigenvalue as `0.5 * (trace - sqrt((trace**2 - 4 * det).abs()))`, and on a flat 9 x 9 footprint the blurred moments
+  are exactly zero, so the sqrt backward is `inf * 0 = nan` and the whole flat region gets a nan gradient; the case
+  takes the gradient of the summed response of an image with black top and bottom rows (2048 nan pixels on 0.8.3).
+  #5655: `equalize_clahe` wrote the clipping residual into the first `residual` histogram bins instead of spreading
+  it over every `max(256 // residual, 1)`-th bin as OpenCV does, which lifted the whole lookup table of a small tile
+  (up to +38 levels against `cv2.createCLAHE`); the case maps a 2 x 4 tile holding levels 0 and 100 with clip 40,
+  where level 100 came out as 255 instead of 159.
+
 ## 0.3.4 (2026-10-09)
 
 - Regression corpus case for pytorch/rl #4504, merged upstream: `MultiCategorical.to_one_hot` iterated over `self.nvec`,
