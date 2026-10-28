@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 (2026-10-28)
 
 - kornia 0.9.0 (released 2026-10-23) contains every kornia fix in the corpus and torchrl 0.14.1 (2026-10-10) the four
   pytorch/rl ones, so `fixed_in_release` is set on those 36 cases and they are plain passes instead of expected
